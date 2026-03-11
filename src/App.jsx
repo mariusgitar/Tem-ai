@@ -137,7 +137,9 @@ function DocumentPage({ accessToken, documentId }) {
   const [document, setDocument] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [analysisMessage, setAnalysisMessage] = useState('')
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [analysisError, setAnalysisError] = useState('')
+  const [codes, setCodes] = useState([])
 
   useEffect(() => {
     let isMounted = true
@@ -165,6 +167,9 @@ function DocumentPage({ accessToken, documentId }) {
       }
 
       setDocument(data)
+      setCodes([])
+      setAnalysisError('')
+      setAnalysisLoading(false)
       setLoading(false)
     }
 
@@ -174,6 +179,38 @@ function DocumentPage({ accessToken, documentId }) {
       isMounted = false
     }
   }, [accessToken, documentId])
+
+
+  const handleAnalyze = async () => {
+    if (!document?.id || analysisLoading) {
+      return
+    }
+
+    setAnalysisLoading(true)
+    setAnalysisError('')
+
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        document_id: document.id,
+      }),
+    })
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      setAnalysisError(data.error || 'Analysering feilet')
+      setAnalysisLoading(false)
+      return
+    }
+
+    setCodes(Array.isArray(data.codes) ? data.codes : [])
+    setAnalysisLoading(false)
+  }
 
   if (loading) {
     return <main className="content">Laster dokument…</main>
@@ -194,14 +231,23 @@ function DocumentPage({ accessToken, documentId }) {
 
       <div className="rawText">{document.raw_text}</div>
 
-      <button
-        type="button"
-        onClick={() => setAnalysisMessage('Analyse kommer i neste versjon')}
-      >
-        Analyser dokument
+      <button type="button" onClick={handleAnalyze} disabled={analysisLoading}>
+        {analysisLoading ? 'Analyserer…' : 'Analyser dokument'}
       </button>
 
-      {analysisMessage ? <p className="meta">{analysisMessage}</p> : null}
+      {analysisError ? <p className="error">{analysisError}</p> : null}
+
+      {codes.length > 0 ? (
+        <section className="codesList" aria-label="Foreslåtte koder">
+          {codes.map((code, index) => (
+            <article className="codeCard" key={code.id || `${code.code_label}-${index}`}>
+              <h2>{code.code_label}</h2>
+              <p className="quote">“{code.quote}”</p>
+              <p>{code.rationale}</p>
+            </article>
+          ))}
+        </section>
+      ) : null}
     </main>
   )
 }
