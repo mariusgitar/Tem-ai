@@ -60,7 +60,7 @@ function LoginPage() {
   )
 }
 
-function UploadPage({ accessToken }) {
+function UploadPage({ accessToken, onOpenUpload }) {
   const [file, setFile] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -97,10 +97,14 @@ function UploadPage({ accessToken }) {
       return
     }
 
-    setSuccess(`Lastet opp: ${data.filename}`)
+    setSuccess('Dokument lastet opp')
+    setLoading(false)
     setFile(null)
     event.target.reset()
-    setLoading(false)
+
+    window.setTimeout(() => {
+      onOpenUpload(data.id)
+    }, 500)
   }
 
   return (
@@ -121,25 +125,111 @@ function UploadPage({ accessToken }) {
         {error ? <p className="error">{error}</p> : null}
         {success ? <p className="success">{success}</p> : null}
 
-        <button type="submit" disabled={loading}>
-          {loading ? 'Laster opp…' : 'Last opp'}
+        <button type="submit" disabled={loading || !!success}>
+          {loading ? 'Laster opp…' : success ? 'Åpner dokument…' : 'Last opp'}
         </button>
       </form>
     </main>
   )
 }
 
+function DocumentPage({ accessToken, documentId }) {
+  const [document, setDocument] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [analysisMessage, setAnalysisMessage] = useState('')
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadDocument = async () => {
+      setLoading(true)
+      setError('')
+
+      const response = await fetch(`/api/document?id=${encodeURIComponent(documentId)}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!isMounted) {
+        return
+      }
+
+      if (!response.ok) {
+        setError(data.error || 'Kunne ikke hente dokument')
+        setLoading(false)
+        return
+      }
+
+      setDocument(data)
+      setLoading(false)
+    }
+
+    loadDocument()
+
+    return () => {
+      isMounted = false
+    }
+  }, [accessToken, documentId])
+
+  if (loading) {
+    return <main className="content">Laster dokument…</main>
+  }
+
+  if (error) {
+    return (
+      <main className="content">
+        <p className="error">{error}</p>
+      </main>
+    )
+  }
+
+  return (
+    <main className="content documentPage">
+      <h1>{document.filename}</h1>
+      <p className="meta">Lastet opp: {new Date(document.created_at).toLocaleString('nb-NO')}</p>
+
+      <div className="rawText">{document.raw_text}</div>
+
+      <button
+        type="button"
+        onClick={() => setAnalysisMessage('Analyse kommer i neste versjon')}
+      >
+        Analyser dokument
+      </button>
+
+      {analysisMessage ? <p className="meta">{analysisMessage}</p> : null}
+    </main>
+  )
+}
+
 function AppShell({ session, onLogout }) {
-  const [page, setPage] = useState('documents')
+  const [path, setPath] = useState(window.location.pathname)
+
+  const goToPath = (nextPath) => {
+    window.history.pushState({}, '', nextPath)
+    setPath(nextPath)
+  }
+
+  useEffect(() => {
+    const onPopState = () => setPath(window.location.pathname)
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  const documentMatch = path.match(/^\/document\/([^/]+)$/)
 
   return (
     <div className="page">
       <header className="topnav">
         <nav>
-          <button className="navlink" onClick={() => setPage('documents')}>
+          <button className="navlink" onClick={() => goToPath('/')}>
             Dokumenter
           </button>
-          <button className="navlink" onClick={() => setPage('upload')}>
+          <button className="navlink" onClick={() => goToPath('/upload')}>
             Last opp
           </button>
         </nav>
@@ -150,8 +240,10 @@ function AppShell({ session, onLogout }) {
         </div>
       </header>
 
-      {page === 'upload' ? (
-        <UploadPage accessToken={session.access_token} />
+      {path === '/upload' ? (
+        <UploadPage accessToken={session.access_token} onOpenUpload={(id) => goToPath(`/document/${id}`)} />
+      ) : documentMatch ? (
+        <DocumentPage accessToken={session.access_token} documentId={documentMatch[1]} />
       ) : (
         <main className="content">
           <h1>TemAI Lite</h1>

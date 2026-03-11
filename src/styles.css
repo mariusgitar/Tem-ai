@@ -82,6 +82,27 @@ nav {
   padding: 1rem;
 }
 
+.documentPage {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 960px;
+}
+
+.meta {
+  margin: 0;
+  color: #4b5563;
+}
+
+.rawText {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 1rem;
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .error {
   color: #dc2626;
   margin: 0;
