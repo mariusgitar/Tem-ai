@@ -112,3 +112,28 @@ nav {
   color: #15803d;
   margin: 0;
 }
+
+.codesList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.codeCard {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.codeCard h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.quote {
+  margin: 0;
+  color: #374151;
+  font-style: italic;
+}
