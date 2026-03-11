@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,9 +17,65 @@ Hver kode skal ha:
 - quote: kort sitat hentet fra teksten
 - rationale: kort begrunnelse
 
-Returner kun gyldig JSON som en array.
+Returner kun en gyldig JSON-array.
 Ingen markdown.
-Ingen forklarende tekst utenfor JSON."""
+Ingen prose.
+Ingen kodeblokker.
+Ingen tekst før eller etter JSON."""
+
+
+class AnthropicParseError(ValueError):
+    def __init__(self, message, preview=None):
+        super().__init__(message)
+        self.preview = preview
+
+
+def text_preview(value, limit=400):
+    clean = (value or '').replace('\n', '\\n').strip()
+    if len(clean) <= limit:
+        return clean
+    return f"{clean[:limit]}..."
+
+
+def extract_first_json_array(model_text):
+    text = (model_text or '').strip()
+    if not text:
+        raise AnthropicParseError('Anthropic returned empty text')
+
+    fence_match = re.search(r'```(?:json)?\s*(.*?)\s*```', text, flags=re.IGNORECASE | re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    start_index = text.find('[')
+    if start_index == -1:
+        raise AnthropicParseError('Could not find JSON array in Anthropic output', preview=text_preview(text))
+
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for index in range(start_index, len(text)):
+        char = text[index]
+
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == '[':
+            depth += 1
+        elif char == ']':
+            depth -= 1
+            if depth == 0:
+                return text[start_index : index + 1]
+
+    raise AnthropicParseError('Could not find a complete JSON array in Anthropic output', preview=text_preview(text))
 
 
 
@@ -99,35 +156,45 @@ def call_anthropic(raw_text):
 
     content_blocks = data.get('content') or []
     if not content_blocks:
-        raise ValueError('Anthropic returned empty content')
+        raise AnthropicParseError('Anthropic returned empty content')
 
     text_parts = [block.get('text', '') for block in content_blocks if block.get('type') == 'text']
     response_text = ''.join(text_parts).strip()
     if not response_text:
-        raise ValueError('Anthropic returned empty text')
+        raise AnthropicParseError('Anthropic returned empty text')
 
     try:
-        parsed = json.loads(response_text)
-    except json.JSONDecodeError as exc:
-        raise ValueError('Anthropic returned invalid JSON') from exc
+        json_array_text = extract_first_json_array(response_text)
+        parsed = json.loads(json_array_text)
+    except (json.JSONDecodeError, AnthropicParseError) as exc:
+        print(
+            f"Anthropic parse failure. Preview: {text_preview(response_text)}",
+            flush=True,
+        )
+        if isinstance(exc, AnthropicParseError):
+            raise
+        raise AnthropicParseError('Anthropic returned invalid JSON', preview=text_preview(response_text)) from exc
 
     if not isinstance(parsed, list):
-        raise ValueError('Anthropic output must be a JSON array')
+        raise AnthropicParseError('Anthropic output must be a JSON array', preview=text_preview(response_text))
 
     if len(parsed) < 1:
-        raise ValueError('Anthropic output is empty')
+        raise AnthropicParseError('Anthropic output is empty', preview=text_preview(response_text))
 
     normalized = []
     for item in parsed:
         if not isinstance(item, dict):
-            raise ValueError('Each code must be an object')
+            raise AnthropicParseError('Each code must be an object', preview=text_preview(response_text))
 
         code_label = str(item.get('code_label', '')).strip()
         quote = str(item.get('quote', '')).strip()
         rationale = str(item.get('rationale', '')).strip()
 
         if not code_label or not quote or not rationale:
-            raise ValueError('Each code must include code_label, quote, and rationale')
+            raise AnthropicParseError(
+                'Each code must include code_label, quote, and rationale',
+                preview=text_preview(response_text),
+            )
 
         normalized.append(
             {
@@ -227,8 +294,11 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 502, {'error': error_message or 'Anthropic request failed'})
         except (TimeoutError, urllib.error.URLError):
             return send_json(self, 502, {'error': 'Anthropic request failed'})
-        except ValueError:
-            return send_json(self, 502, {'error': 'Invalid JSON response from Anthropic'})
+        except AnthropicParseError as exc:
+            payload = {'error': 'Anthropic returned non-JSON output'}
+            if exc.preview:
+                payload['preview'] = exc.preview
+            return send_json(self, 502, payload)
 
         try:
             rows = insert_codes(access_token, document_id, codes)
