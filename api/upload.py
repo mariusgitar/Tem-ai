@@ -5,7 +5,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
-SUPABASE_SERVICE_ROLE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
+SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
 
 
 def send_json(handler, status_code, payload):
@@ -20,7 +20,7 @@ def get_user(access_token):
         f"{SUPABASE_URL}/auth/v1/user",
         headers={
             'Authorization': f'Bearer {access_token}',
-            'apikey': SUPABASE_SERVICE_ROLE_KEY,
+            'apikey': SUPABASE_ANON_KEY,
         },
     )
 
@@ -28,7 +28,7 @@ def get_user(access_token):
         return json.loads(res.read().decode('utf-8'))
 
 
-def insert_document(user_id, filename, raw_text):
+def insert_document(access_token, user_id, filename, raw_text):
     body = json.dumps(
         {
             'user_id': user_id,
@@ -43,8 +43,8 @@ def insert_document(user_id, filename, raw_text):
         method='POST',
         headers={
             'Content-Type': 'application/json',
-            'apikey': SUPABASE_SERVICE_ROLE_KEY,
-            'Authorization': f'Bearer {SUPABASE_SERVICE_ROLE_KEY}',
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': f'Bearer {access_token}',
             'Prefer': 'return=representation',
         },
     )
@@ -56,7 +56,7 @@ def insert_document(user_id, filename, raw_text):
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        if not SUPABASE_URL or not SUPABASE_ANON_KEY:
             return send_json(self, 500, {'error': 'Missing server environment variables'})
 
         auth_header = self.headers.get('Authorization', '')
@@ -98,7 +98,7 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 400, {'error': 'File must be UTF-8 text'})
 
         try:
-            row = insert_document(user['id'], filename, raw_text)
+            row = insert_document(access_token, user['id'], filename, raw_text)
         except Exception:
             return send_json(self, 500, {'error': 'Could not save document'})
 
