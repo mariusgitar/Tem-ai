@@ -60,24 +60,103 @@ function LoginPage() {
   )
 }
 
-function AppShell({ email, onLogout }) {
+function UploadPage({ accessToken }) {
+  const [file, setFile] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+
+    if (!file) {
+      setError('Velg en .txt-fil før opplasting.')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    setSuccess('')
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: formData,
+    })
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      setError(data.error || 'Opplasting feilet.')
+      setLoading(false)
+      return
+    }
+
+    setSuccess(`Lastet opp: ${data.filename}`)
+    setFile(null)
+    event.target.reset()
+    setLoading(false)
+  }
+
+  return (
+    <main className="content">
+      <h1>Last opp dokument</h1>
+
+      <form className="card" onSubmit={handleSubmit}>
+        <label>
+          Tekstfil (.txt)
+          <input
+            type="file"
+            accept=".txt,text/plain"
+            onChange={(event) => setFile(event.target.files?.[0] || null)}
+            required
+          />
+        </label>
+
+        {error ? <p className="error">{error}</p> : null}
+        {success ? <p className="success">{success}</p> : null}
+
+        <button type="submit" disabled={loading}>
+          {loading ? 'Laster opp…' : 'Last opp'}
+        </button>
+      </form>
+    </main>
+  )
+}
+
+function AppShell({ session, onLogout }) {
+  const [page, setPage] = useState('documents')
+
   return (
     <div className="page">
       <header className="topnav">
         <nav>
-          <a href="#">Dokumenter</a>
-          <a href="#">Last opp</a>
+          <button className="navlink" onClick={() => setPage('documents')}>
+            Dokumenter
+          </button>
+          <button className="navlink" onClick={() => setPage('upload')}>
+            Last opp
+          </button>
         </nav>
 
         <div className="userActions">
-          <span>{email}</span>
+          <span>{session.user.email}</span>
           <button onClick={onLogout}>Logg ut</button>
         </div>
       </header>
 
-      <main className="content">
-        <h1>TemAI Lite</h1>
-      </main>
+      {page === 'upload' ? (
+        <UploadPage accessToken={session.access_token} />
+      ) : (
+        <main className="content">
+          <h1>TemAI Lite</h1>
+        </main>
+      )}
     </div>
   )
 }
@@ -113,5 +192,5 @@ export default function App() {
     return <LoginPage />
   }
 
-  return <AppShell email={session.user.email} onLogout={handleLogout} />
+  return <AppShell session={session} onLogout={handleLogout} />
 }
