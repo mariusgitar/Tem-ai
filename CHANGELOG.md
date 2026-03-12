@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Added temporary `/api/analyze` debug mode (`DEBUG_RETURN_RAW_ANTHROPIC = True`) to return raw Anthropic model text directly in API responses (truncated to 4000 chars) for browser-side inspection.
+- Updated `/api/analyze` non-JSON Anthropic failures to return `raw_text` (truncated) plus `response_debug` metadata (`content_block_count`, `first_block_type`) with HTTP 502.
 - Fixed document analysis trigger to always use `fetch()` with `POST /api/analyze`, JSON body `{ "document_id": "<id>" }`, and Supabase bearer token auth; also added explicit frontend console logging for failed requests.
 - Hardened `/api/analyze` Anthropic parsing: extracts text from Messages API content blocks, strips common wrappers (code fences/prose), safely parses the first JSON array, validates required keys, logs parse-failure previews server-side, and returns a clear `{"error":"Anthropic returned non-JSON output"}` response when parsing fails.
 - Added `POST /api/analyze` endpoint that verifies document ownership, sends the document text to Anthropic `claude-sonnet-4-6`, validates strict JSON output, stores AI codes in Supabase `codes`, and returns inserted codes.

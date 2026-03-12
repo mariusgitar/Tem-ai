@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+DEBUG_RETURN_RAW_ANTHROPIC = True
 
 SYSTEM_PROMPT = """Du er en erfaren kvalitativ analytiker.
 Les intervjuteksten og foreslå 4–8 induktive koder.
@@ -25,9 +26,17 @@ Ingen tekst før eller etter JSON."""
 
 
 class AnthropicParseError(ValueError):
-    def __init__(self, message, preview=None):
+    def __init__(self, message, preview=None, raw_text=None, response_debug=None):
         super().__init__(message)
         self.preview = preview
+        self.raw_text = raw_text
+        self.response_debug = response_debug or {}
+
+
+class AnthropicDebugResponse(Exception):
+    def __init__(self, raw_text):
+        super().__init__('Debug mode: returning raw Anthropic output')
+        self.raw_text = raw_text
 
 
 def text_preview(value, limit=400):
@@ -158,10 +167,18 @@ def call_anthropic(raw_text):
     if not content_blocks:
         raise AnthropicParseError('Anthropic returned empty content')
 
+    response_debug = {
+        'content_block_count': len(content_blocks),
+        'first_block_type': content_blocks[0].get('type') if content_blocks else None,
+    }
+
     text_parts = [block.get('text', '') for block in content_blocks if block.get('type') == 'text']
     model_text = ''.join(text_parts)
     if not model_text.strip():
         raise AnthropicParseError('Anthropic returned empty text')
+
+    if DEBUG_RETURN_RAW_ANTHROPIC:
+        raise AnthropicDebugResponse(model_text)
 
     print("ANTHROPIC_RAW_OUTPUT:", model_text[:2000])
 
@@ -176,19 +193,43 @@ def call_anthropic(raw_text):
         if isinstance(exc, AnthropicParseError):
             if not exc.preview:
                 exc.preview = model_text[:500]
+            if not exc.raw_text:
+                exc.raw_text = model_text
+            if not exc.response_debug:
+                exc.response_debug = response_debug
             raise
-        raise AnthropicParseError('Anthropic returned invalid JSON', preview=model_text[:500]) from exc
+        raise AnthropicParseError(
+            'Anthropic returned invalid JSON',
+            preview=model_text[:500],
+            raw_text=model_text,
+            response_debug=response_debug,
+        ) from exc
 
     if not isinstance(parsed, list):
-        raise AnthropicParseError('Anthropic output must be a JSON array', preview=model_text[:500])
+        raise AnthropicParseError(
+            'Anthropic output must be a JSON array',
+            preview=model_text[:500],
+            raw_text=model_text,
+            response_debug=response_debug,
+        )
 
     if len(parsed) < 1:
-        raise AnthropicParseError('Anthropic output is empty', preview=model_text[:500])
+        raise AnthropicParseError(
+            'Anthropic output is empty',
+            preview=model_text[:500],
+            raw_text=model_text,
+            response_debug=response_debug,
+        )
 
     normalized = []
     for item in parsed:
         if not isinstance(item, dict):
-            raise AnthropicParseError('Each code must be an object', preview=model_text[:500])
+            raise AnthropicParseError(
+                'Each code must be an object',
+                preview=model_text[:500],
+                raw_text=model_text,
+                response_debug=response_debug,
+            )
 
         code_label = str(item.get('code_label', '')).strip()
         quote = str(item.get('quote', '')).strip()
@@ -198,6 +239,8 @@ def call_anthropic(raw_text):
             raise AnthropicParseError(
                 'Each code must include code_label, quote, and rationale',
                 preview=model_text[:500],
+                raw_text=model_text,
+                response_debug=response_debug,
             )
 
         normalized.append(
@@ -298,10 +341,24 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 502, {'error': error_message or 'Anthropic request failed'})
         except (TimeoutError, urllib.error.URLError):
             return send_json(self, 502, {'error': 'Anthropic request failed'})
+        except AnthropicDebugResponse as exc:
+            return send_json(
+                self,
+                200,
+                {
+                    'debug': True,
+                    'raw_text': exc.raw_text[:4000],
+                },
+            )
         except AnthropicParseError as exc:
-            payload = {'error': 'Anthropic returned non-JSON output'}
-            if exc.preview:
-                payload['preview'] = exc.preview
+            payload = {
+                'error': 'Anthropic returned non-JSON output',
+                'raw_text': (exc.raw_text or '')[:4000],
+                'response_debug': {
+                    'content_block_count': exc.response_debug.get('content_block_count'),
+                    'first_block_type': exc.response_debug.get('first_block_type'),
+                },
+            }
             return send_json(self, 502, payload)
 
         try:
