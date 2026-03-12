@@ -64,9 +64,13 @@ def create_codebook_item(access_token, payload):
         },
     )
 
-    with urllib.request.urlopen(req) as res:
-        rows = json.loads(res.read().decode('utf-8'))
-        return rows[0] if rows else None
+    try:
+        with urllib.request.urlopen(req) as res:
+            rows = json.loads(res.read().decode('utf-8'))
+            return rows[0] if rows else None
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        raise Exception(error_body)
 
 
 def list_codebook_items(access_token, document_id):
@@ -210,8 +214,15 @@ class handler(BaseHTTPRequestHandler):
                     'source': source,
                 },
             )
-        except urllib.error.HTTPError:
-            return send_json(self, 500, {'error': 'Could not save codebook item'})
+        except Exception as e:
+            return send_json(
+                self,
+                500,
+                {
+                    'error': 'Could not save codebook item',
+                    'details': str(e),
+                },
+            )
 
         return send_json(self, 200, {'item': item})
 
