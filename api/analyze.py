@@ -159,32 +159,36 @@ def call_anthropic(raw_text):
         raise AnthropicParseError('Anthropic returned empty content')
 
     text_parts = [block.get('text', '') for block in content_blocks if block.get('type') == 'text']
-    response_text = ''.join(text_parts).strip()
-    if not response_text:
+    model_text = ''.join(text_parts)
+    if not model_text.strip():
         raise AnthropicParseError('Anthropic returned empty text')
 
+    print("ANTHROPIC_RAW_OUTPUT:", model_text[:2000])
+
     try:
-        json_array_text = extract_first_json_array(response_text)
+        json_array_text = extract_first_json_array(model_text)
         parsed = json.loads(json_array_text)
     except (json.JSONDecodeError, AnthropicParseError) as exc:
         print(
-            f"Anthropic parse failure. Preview: {text_preview(response_text)}",
+            f"Anthropic parse failure. Preview: {text_preview(model_text)}",
             flush=True,
         )
         if isinstance(exc, AnthropicParseError):
+            if not exc.preview:
+                exc.preview = model_text[:500]
             raise
-        raise AnthropicParseError('Anthropic returned invalid JSON', preview=text_preview(response_text)) from exc
+        raise AnthropicParseError('Anthropic returned invalid JSON', preview=model_text[:500]) from exc
 
     if not isinstance(parsed, list):
-        raise AnthropicParseError('Anthropic output must be a JSON array', preview=text_preview(response_text))
+        raise AnthropicParseError('Anthropic output must be a JSON array', preview=model_text[:500])
 
     if len(parsed) < 1:
-        raise AnthropicParseError('Anthropic output is empty', preview=text_preview(response_text))
+        raise AnthropicParseError('Anthropic output is empty', preview=model_text[:500])
 
     normalized = []
     for item in parsed:
         if not isinstance(item, dict):
-            raise AnthropicParseError('Each code must be an object', preview=text_preview(response_text))
+            raise AnthropicParseError('Each code must be an object', preview=model_text[:500])
 
         code_label = str(item.get('code_label', '')).strip()
         quote = str(item.get('quote', '')).strip()
@@ -193,7 +197,7 @@ def call_anthropic(raw_text):
         if not code_label or not quote or not rationale:
             raise AnthropicParseError(
                 'Each code must include code_label, quote, and rationale',
-                preview=text_preview(response_text),
+                preview=model_text[:500],
             )
 
         normalized.append(
