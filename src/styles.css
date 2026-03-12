@@ -137,3 +137,26 @@ nav {
   color: #374151;
   font-style: italic;
 }
+
+.codebookSection {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.codebookCard {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+textarea,
+select {
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+}
