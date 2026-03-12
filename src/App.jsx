@@ -233,11 +233,16 @@ function DocumentPage({ accessToken, documentId }) {
       const data = await response.json().catch(() => ({}))
 
       if (!response.ok) {
-        const frontendMessage = data.error || 'Analysering feilet'
+        const isAnalyzeOverloaded =
+          response.status === 503 && data?.error === 'Analyze temporarily unavailable'
+        const frontendMessage = isAnalyzeOverloaded
+          ? 'Claude er opptatt akkurat nå. Prøv igjen om litt.'
+          : data.error || 'Analysering feilet'
         console.error('Analyze request failed', {
           status: response.status,
           statusText: response.statusText,
           backendError: data.error,
+          backendDetails: data.details,
           documentId: document.id,
         })
         setAnalysisError(frontendMessage)
