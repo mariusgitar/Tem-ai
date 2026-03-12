@@ -140,6 +140,33 @@ function DocumentPage({ accessToken, documentId }) {
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
   const [codes, setCodes] = useState([])
+  const [codebookItems, setCodebookItems] = useState([])
+  const [codebookLoading, setCodebookLoading] = useState(false)
+  const [codebookError, setCodebookError] = useState('')
+  const [savingCodebookId, setSavingCodebookId] = useState('')
+
+  const loadCodebook = async (nextDocumentId) => {
+    setCodebookLoading(true)
+    setCodebookError('')
+
+    const response = await fetch(`/api/codebook?document_id=${encodeURIComponent(nextDocumentId)}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    })
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      setCodebookError(data.error || 'Kunne ikke hente kodebok')
+      setCodebookItems([])
+      setCodebookLoading(false)
+      return
+    }
+
+    setCodebookItems(Array.isArray(data.items) ? data.items : [])
+    setCodebookLoading(false)
+  }
 
   useEffect(() => {
     let isMounted = true
@@ -170,6 +197,7 @@ function DocumentPage({ accessToken, documentId }) {
       setCodes([])
       setAnalysisError('')
       setAnalysisLoading(false)
+      await loadCodebook(data.id)
       setLoading(false)
     }
 
@@ -179,7 +207,6 @@ function DocumentPage({ accessToken, documentId }) {
       isMounted = false
     }
   }, [accessToken, documentId])
-
 
   const handleAnalyze = async (event) => {
     event?.preventDefault?.()
@@ -230,6 +257,84 @@ function DocumentPage({ accessToken, documentId }) {
     }
   }
 
+  const handleAddToCodebook = async (code) => {
+    if (!document?.id || !code?.code_label) {
+      return
+    }
+
+    const saveKey = `${code.code_label}-${code.quote}`
+    setSavingCodebookId(saveKey)
+    setCodebookError('')
+
+    const response = await fetch('/api/codebook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        document_id: document.id,
+        code_name: code.code_label,
+        definition: code.rationale || '',
+        status: 'draft',
+        source: 'ai_from_codes',
+      }),
+    })
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      setCodebookError(data.error || 'Kunne ikke lagre kodebok-element')
+      setSavingCodebookId('')
+      return
+    }
+
+    if (data.item) {
+      setCodebookItems((previous) => [...previous, data.item])
+    }
+    setSavingCodebookId('')
+  }
+
+  const handleCodebookFieldChange = (itemId, field, value) => {
+    setCodebookItems((previous) =>
+      previous.map((item) => (item.id === itemId ? { ...item, [field]: value } : item))
+    )
+  }
+
+  const handleSaveCodebookItem = async (item) => {
+    setSavingCodebookId(item.id)
+    setCodebookError('')
+
+    const response = await fetch('/api/codebook', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        id: item.id,
+        code_name: item.code_name,
+        definition: item.definition || '',
+        status: item.status,
+      }),
+    })
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      setCodebookError(data.error || 'Kunne ikke oppdatere kodebok-element')
+      setSavingCodebookId('')
+      return
+    }
+
+    if (data.item) {
+      setCodebookItems((previous) =>
+        previous.map((existingItem) => (existingItem.id === item.id ? data.item : existingItem))
+      )
+    }
+    setSavingCodebookId('')
+  }
+
   if (loading) {
     return <main className="content">Laster dokument…</main>
   }
@@ -257,15 +362,67 @@ function DocumentPage({ accessToken, documentId }) {
 
       {codes.length > 0 ? (
         <section className="codesList" aria-label="Foreslåtte koder">
-          {codes.map((code, index) => (
-            <article className="codeCard" key={code.id || `${code.code_label}-${index}`}>
-              <h2>{code.code_label}</h2>
-              <p className="quote">“{code.quote}”</p>
-              <p>{code.rationale}</p>
-            </article>
-          ))}
+          {codes.map((code, index) => {
+            const saveKey = `${code.code_label}-${code.quote}`
+
+            return (
+              <article className="codeCard" key={code.id || `${code.code_label}-${index}`}>
+                <h2>{code.code_label}</h2>
+                <p className="quote">“{code.quote}”</p>
+                <p>{code.rationale}</p>
+                <button type="button" onClick={() => handleAddToCodebook(code)} disabled={savingCodebookId === saveKey}>
+                  {savingCodebookId === saveKey ? 'Lagrer…' : 'Legg til i kodebok'}
+                </button>
+              </article>
+            )
+          })}
         </section>
       ) : null}
+
+      <section className="codebookSection" aria-label="Kodebok">
+        <h2>Kodebok</h2>
+        {codebookLoading ? <p>Laster kodebok…</p> : null}
+        {codebookError ? <p className="error">{codebookError}</p> : null}
+
+        {codebookItems.length === 0 && !codebookLoading ? <p>Ingen kodebok-elementer enda.</p> : null}
+
+        {codebookItems.map((item) => (
+          <article className="codebookCard" key={item.id}>
+            <label>
+              Kodenavn
+              <input
+                type="text"
+                value={item.code_name || ''}
+                onChange={(event) => handleCodebookFieldChange(item.id, 'code_name', event.target.value)}
+              />
+            </label>
+
+            <label>
+              Definisjon
+              <textarea
+                value={item.definition || ''}
+                onChange={(event) => handleCodebookFieldChange(item.id, 'definition', event.target.value)}
+                rows={3}
+              />
+            </label>
+
+            <label>
+              Status
+              <select
+                value={item.status || 'draft'}
+                onChange={(event) => handleCodebookFieldChange(item.id, 'status', event.target.value)}
+              >
+                <option value="draft">draft</option>
+                <option value="approved">approved</option>
+              </select>
+            </label>
+
+            <button type="button" onClick={() => handleSaveCodebookItem(item)} disabled={savingCodebookId === item.id}>
+              {savingCodebookId === item.id ? 'Lagrer…' : 'Lagre endringer'}
+            </button>
+          </article>
+        ))}
+      </section>
     </main>
   )
 }
