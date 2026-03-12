@@ -51,6 +51,13 @@ def get_document(access_token, document_id):
         return rows[0] if rows else None
 
 
+def parse_http_error_details(exc):
+    try:
+        return json.loads(exc.read().decode('utf-8'))
+    except Exception:
+        return None
+
+
 def create_codebook_item(access_token, payload):
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/codebook",
@@ -147,8 +154,15 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             items = list_codebook_items(access_token, document_id)
-        except urllib.error.HTTPError:
-            return send_json(self, 500, {'error': 'Could not load codebook'})
+        except urllib.error.HTTPError as exc:
+            return send_json(
+                self,
+                500,
+                {
+                    'error': 'Could not load codebook',
+                    'details': parse_http_error_details(exc),
+                },
+            )
 
         return send_json(self, 200, {'items': items})
 
@@ -276,8 +290,15 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             item = update_codebook_item(access_token, item_id, updates)
-        except urllib.error.HTTPError:
-            return send_json(self, 500, {'error': 'Could not update codebook item'})
+        except urllib.error.HTTPError as exc:
+            return send_json(
+                self,
+                500,
+                {
+                    'error': 'Could not update codebook item',
+                    'details': parse_http_error_details(exc),
+                },
+            )
 
         if not item:
             return send_json(self, 404, {'error': 'Codebook item not found'})

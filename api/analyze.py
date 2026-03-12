@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -245,6 +246,27 @@ def call_anthropic(raw_text):
     return normalized
 
 
+def parse_http_error_details(exc):
+    try:
+        return json.loads(exc.read().decode('utf-8'))
+    except Exception:
+        return None
+
+
+def is_overloaded_error(details):
+    if not isinstance(details, dict):
+        return False
+
+    error_obj = details.get('error')
+    if isinstance(error_obj, dict):
+        error_type = str(error_obj.get('type', '')).lower()
+        error_message = str(error_obj.get('message', '')).lower()
+        return error_type == 'overloaded_error' or 'overloaded' in error_message
+
+    backend_error = str(details.get('backendError', '')).lower()
+    return 'overloaded' in backend_error
+
+
 
 def insert_codes(access_token, document_id, codes):
     payload = [
@@ -321,27 +343,45 @@ class handler(BaseHTTPRequestHandler):
         if not raw_text:
             return send_json(self, 400, {'error': 'Document has no text to analyze'})
 
-        try:
-            codes = call_anthropic(raw_text)
-        except urllib.error.HTTPError as exc:
+        codes = None
+        for attempt in range(2):
             try:
-                details = json.loads(exc.read().decode('utf-8'))
-                error_message = details.get('error', {}).get('message')
-            except Exception:
+                codes = call_anthropic(raw_text)
+                break
+            except urllib.error.HTTPError as exc:
+                details = parse_http_error_details(exc)
+                if is_overloaded_error(details):
+                    if attempt == 0:
+                        time.sleep(0.8)
+                        continue
+                    return send_json(
+                        self,
+                        503,
+                        {
+                            'error': 'Analyze temporarily unavailable',
+                            'details': 'Claude is overloaded, please try again in a moment',
+                        },
+                    )
+
                 error_message = None
-            return send_json(self, 502, {'error': error_message or 'Anthropic request failed'})
-        except (TimeoutError, urllib.error.URLError):
+                if isinstance(details, dict):
+                    error_message = details.get('error', {}).get('message')
+                return send_json(self, 502, {'error': error_message or 'Anthropic request failed'})
+            except (TimeoutError, urllib.error.URLError):
+                return send_json(self, 502, {'error': 'Anthropic request failed'})
+            except AnthropicParseError as exc:
+                payload = {
+                    'error': 'Anthropic returned non-JSON output',
+                    'raw_text': (exc.raw_text or '')[:4000],
+                    'response_debug': {
+                        'content_block_count': exc.response_debug.get('content_block_count'),
+                        'first_block_type': exc.response_debug.get('first_block_type'),
+                    },
+                }
+                return send_json(self, 502, payload)
+
+        if codes is None:
             return send_json(self, 502, {'error': 'Anthropic request failed'})
-        except AnthropicParseError as exc:
-            payload = {
-                'error': 'Anthropic returned non-JSON output',
-                'raw_text': (exc.raw_text or '')[:4000],
-                'response_debug': {
-                    'content_block_count': exc.response_debug.get('content_block_count'),
-                    'first_block_type': exc.response_debug.get('first_block_type'),
-                },
-            }
-            return send_json(self, 502, payload)
 
         try:
             rows = insert_codes(access_token, document_id, codes)
