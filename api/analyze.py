@@ -137,7 +137,7 @@ def call_anthropic(raw_text):
     body = json.dumps(
         {
             'model': 'claude-sonnet-4-6',
-            'max_tokens': 700,
+            'max_tokens': 1500,
             'temperature': 0,
             'system': SYSTEM_PROMPT,
             'messages': [
