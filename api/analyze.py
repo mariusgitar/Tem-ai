@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
-DEBUG_RETURN_RAW_ANTHROPIC = True
+DEBUG_RETURN_RAW_ANTHROPIC = False
 
 SYSTEM_PROMPT = """Du er en erfaren kvalitativ analytiker.
 Les intervjuteksten og foreslå 4–8 induktive koder.
@@ -31,12 +31,6 @@ class AnthropicParseError(ValueError):
         self.preview = preview
         self.raw_text = raw_text
         self.response_debug = response_debug or {}
-
-
-class AnthropicDebugResponse(Exception):
-    def __init__(self, raw_text):
-        super().__init__('Debug mode: returning raw Anthropic output')
-        self.raw_text = raw_text
 
 
 def text_preview(value, limit=400):
@@ -176,9 +170,6 @@ def call_anthropic(raw_text):
     model_text = ''.join(text_parts)
     if not model_text.strip():
         raise AnthropicParseError('Anthropic returned empty text')
-
-    if DEBUG_RETURN_RAW_ANTHROPIC:
-        raise AnthropicDebugResponse(model_text)
 
     print("ANTHROPIC_RAW_OUTPUT:", model_text[:2000])
 
@@ -341,15 +332,6 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 502, {'error': error_message or 'Anthropic request failed'})
         except (TimeoutError, urllib.error.URLError):
             return send_json(self, 502, {'error': 'Anthropic request failed'})
-        except AnthropicDebugResponse as exc:
-            return send_json(
-                self,
-                200,
-                {
-                    'debug': True,
-                    'raw_text': exc.raw_text[:4000],
-                },
-            )
         except AnthropicParseError as exc:
             payload = {
                 'error': 'Anthropic returned non-JSON output',
@@ -368,12 +350,9 @@ class handler(BaseHTTPRequestHandler):
 
         response_codes = [
             {
-                'id': row.get('id'),
                 'code_label': row.get('code_label'),
                 'quote': row.get('quote'),
                 'rationale': row.get('rationale'),
-                'source': row.get('source'),
-                'created_at': row.get('created_at'),
             }
             for row in rows
         ]
