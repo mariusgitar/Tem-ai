@@ -181,7 +181,9 @@ function DocumentPage({ accessToken, documentId }) {
   }, [accessToken, documentId])
 
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = async (event) => {
+    event?.preventDefault?.()
+
     if (!document?.id || analysisLoading) {
       return
     }
@@ -189,27 +191,43 @@ function DocumentPage({ accessToken, documentId }) {
     setAnalysisLoading(true)
     setAnalysisError('')
 
-    const response = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        document_id: document.id,
-      }),
-    })
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          document_id: document.id,
+        }),
+      })
 
-    const data = await response.json().catch(() => ({}))
+      const data = await response.json().catch(() => ({}))
 
-    if (!response.ok) {
-      setAnalysisError(data.error || 'Analysering feilet')
+      if (!response.ok) {
+        const frontendMessage = data.error || 'Analysering feilet'
+        console.error('Analyze request failed', {
+          status: response.status,
+          statusText: response.statusText,
+          backendError: data.error,
+          documentId: document.id,
+        })
+        setAnalysisError(frontendMessage)
+        setAnalysisLoading(false)
+        return
+      }
+
+      setCodes(Array.isArray(data.codes) ? data.codes : [])
       setAnalysisLoading(false)
-      return
+    } catch (fetchError) {
+      console.error('Analyze request failed before response', {
+        error: fetchError,
+        documentId: document.id,
+      })
+      setAnalysisError('Kunne ikke kontakte serveren for analysering')
+      setAnalysisLoading(false)
     }
-
-    setCodes(Array.isArray(data.codes) ? data.codes : [])
-    setAnalysisLoading(false)
   }
 
   if (loading) {
