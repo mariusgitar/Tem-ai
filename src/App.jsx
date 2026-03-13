@@ -469,6 +469,9 @@ function DocumentPage({ accessToken, documentId }) {
       <button type="button" onClick={handleRecode} disabled={recodeLoading || approvedCodebookItems.length === 0}>
         {recodeLoading ? 'Koder teksten…' : 'Kode med kodebok'}
       </button>
+      {approvedCodebookItems.length === 0 && !recodeLoading ? (
+        <p className="meta">Godkjenn minst én kode i kodeboken for å aktivere denne.</p>
+      ) : null}
 
       {analysisError ? <p className="error">{analysisError}</p> : null}
       {recodeError ? <p className="error">{recodeError}</p> : null}
