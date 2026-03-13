@@ -432,6 +432,90 @@ function DocumentPage({ accessToken, documentId }) {
   )
 }
 
+
+function DocumentsPage({ accessToken, onOpenDocument }) {
+  const [documents, setDocuments] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadDocuments = async () => {
+      setLoading(true)
+      setError('')
+
+      const response = await fetch('/api/documents', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!isMounted) {
+        return
+      }
+
+      if (!response.ok) {
+        setError(data.error || 'Kunne ikke hente dokumenter')
+        setDocuments([])
+        setLoading(false)
+        return
+      }
+
+      setDocuments(Array.isArray(data.documents) ? data.documents : [])
+      setLoading(false)
+    }
+
+    loadDocuments()
+
+    return () => {
+      isMounted = false
+    }
+  }, [accessToken])
+
+  if (loading) {
+    return <main className="content">Laster dokumenter…</main>
+  }
+
+  if (error) {
+    return (
+      <main className="content">
+        <p className="error">{error}</p>
+      </main>
+    )
+  }
+
+  if (documents.length === 0) {
+    return (
+      <main className="content">
+        <p>Ingen dokumenter ennå.</p>
+        <p>
+          <a href="/upload">Last opp et dokument</a>
+        </p>
+      </main>
+    )
+  }
+
+  return (
+    <main className="content">
+      <h1>Dokumenter</h1>
+      <section className="codesList" aria-label="Dokumentliste">
+        {documents.map((document) => (
+          <article className="codeCard" key={document.id}>
+            <h2>{document.filename}</h2>
+            <p className="meta">Lastet opp: {new Date(document.created_at).toLocaleString('nb-NO')}</p>
+            <button type="button" onClick={() => onOpenDocument(document.id)}>
+              Åpne
+            </button>
+          </article>
+        ))}
+      </section>
+    </main>
+  )
+}
+
 function AppShell({ session, onLogout }) {
   const [path, setPath] = useState(window.location.pathname)
 
@@ -471,9 +555,7 @@ function AppShell({ session, onLogout }) {
       ) : documentMatch ? (
         <DocumentPage accessToken={session.access_token} documentId={documentMatch[1]} />
       ) : (
-        <main className="content">
-          <h1>TemAI Lite</h1>
-        </main>
+        <DocumentsPage accessToken={session.access_token} onOpenDocument={(id) => goToPath(`/document/${id}`)} />
       )}
     </div>
   )
