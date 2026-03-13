@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Added GET /api/documents endpoint that returns all documents for the authenticated user
+- Added DocumentsPage component on the root route showing a clickable list of uploaded documents
 - Completed `/api/analyze` flow for production by disabling temporary debug mode, parsing Anthropic text as JSON, validating array/object shape (`code_label`, `quote`, `rationale`), and returning a normalized `{ "codes": [...] }` response.
 - Updated `/api/analyze` success responses to only expose `code_label`, `quote`, and `rationale` for each returned code.
 - Persisted parsed AI-generated codes to Supabase `codes` with `document_id`, `code_label`, `quote`, `rationale`, and `source = "ai"`.
