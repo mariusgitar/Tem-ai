@@ -144,23 +144,29 @@ def get_approved_codebook(access_token, document_id):
 def call_llm(raw_text, codebook_items):
     user_content = f"Kodebok:\n{json.dumps(codebook_items, ensure_ascii=False)}\n\nTekst:\n{raw_text}"
 
-    body = json.dumps(
-        {
-            'model': 'meta-llama/llama-4-maverick-17b-128e-instruct',
-            'max_tokens': 1500,
-            'temperature': 0,
-            'messages': [
-                {
-                    'role': 'system',
-                    'content': RECODE_SYSTEM_PROMPT,
-                },
-                {
-                    'role': 'user',
-                    'content': user_content,
-                },
-            ],
-        }
-    ).encode('utf-8')
+    print('CODEBOOK_ITEMS_TYPE:', type(codebook_items).__name__, flush=True)
+    print('CODEBOOK_ITEMS_PREVIEW:', str(codebook_items)[:200], flush=True)
+    try:
+        body = json.dumps(
+            {
+                'model': 'meta-llama/llama-4-maverick-17b-128e-instruct',
+                'max_tokens': 1500,
+                'temperature': 0,
+                'messages': [
+                    {
+                        'role': 'system',
+                        'content': RECODE_SYSTEM_PROMPT,
+                    },
+                    {
+                        'role': 'user',
+                        'content': user_content,
+                    },
+                ],
+            }
+        ).encode('utf-8')
+    except Exception as e:
+        print('JSON_DUMPS_ERROR:', type(e).__name__, str(e), flush=True)
+        raise
 
     req = urllib.request.Request(
         'https://api.groq.com/openai/v1/chat/completions',
