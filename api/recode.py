@@ -10,20 +10,16 @@ from http.server import BaseHTTPRequestHandler
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
 GROQ_API_KEY = os.environ.get('temai_groq_api_key')
-DEBUG_RETURN_RAW_ANTHROPIC = False
 
-SYSTEM_PROMPT = """Du er en erfaren kvalitativ analytiker.
-Les intervjuteksten og foreslå 4–8 induktive koder.
-Hver kode skal ha:
-- code_label: kort og presis kode
-- quote: kort sitat hentet fra teksten
-- rationale: kort begrunnelse
-
+RECODE_SYSTEM_PROMPT = """Du er en kvalitativ analytiker.
+Du får en tekst og en kodebok med godkjente koder.
+Gå gjennom teksten og identifiser segmenter som passer til kodene.
 Returner kun en gyldig JSON-array.
-Ingen markdown.
-Ingen prose.
-Ingen kodeblokker.
-Ingen tekst før eller etter JSON."""
+Ingen markdown. Ingen prose. Ingen kodeblokker.
+Hvert element skal ha:
+- code_name: navnet på koden fra kodeboken
+- quote: det eksakte sitatet fra teksten
+- rationale: kort begrunnelse"""
 
 
 class AnthropicParseError(ValueError):
@@ -82,13 +78,11 @@ def extract_first_json_array(model_text):
     raise AnthropicParseError('Could not find a complete JSON array in Anthropic output', preview=text_preview(text))
 
 
-
 def send_json(handler, status_code, payload):
     handler.send_response(status_code)
     handler.send_header('Content-Type', 'application/json')
     handler.end_headers()
     handler.wfile.write(json.dumps(payload).encode('utf-8'))
-
 
 
 def get_user(access_token):
@@ -102,7 +96,6 @@ def get_user(access_token):
 
     with urllib.request.urlopen(req) as res:
         return json.loads(res.read().decode('utf-8'))
-
 
 
 def get_document(access_token, document_id):
@@ -127,8 +120,30 @@ def get_document(access_token, document_id):
         return rows[0] if rows else None
 
 
+def get_approved_codebook(access_token, document_id):
+    params = urllib.parse.urlencode(
+        {
+            'document_id': f'eq.{document_id}',
+            'status': 'eq.approved',
+            'select': 'code_name,definition',
+        }
+    )
 
-def call_llm(raw_text):
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/codebook?{params}",
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'apikey': SUPABASE_ANON_KEY,
+        },
+    )
+
+    with urllib.request.urlopen(req) as res:
+        return json.loads(res.read().decode('utf-8'))
+
+
+def call_llm(raw_text, codebook_items):
+    user_content = f"Kodebok:\n{json.dumps(codebook_items, ensure_ascii=False)}\n\nTekst:\n{raw_text}"
+
     body = json.dumps(
         {
             'model': 'meta-llama/llama-4-maverick-17b-128e-instruct',
@@ -137,11 +152,11 @@ def call_llm(raw_text):
             'messages': [
                 {
                     'role': 'system',
-                    'content': SYSTEM_PROMPT,
+                    'content': RECODE_SYSTEM_PROMPT,
                 },
                 {
                     'role': 'user',
-                    'content': raw_text,
+                    'content': user_content,
                 },
             ],
         }
@@ -173,7 +188,7 @@ def call_llm(raw_text):
     if not model_text.strip():
         raise AnthropicParseError('Anthropic returned empty text')
 
-    print("ANTHROPIC_RAW_OUTPUT:", model_text[:2000])
+    print('ANTHROPIC_RAW_OUTPUT:', model_text[:2000])
 
     try:
         json_array_text = extract_first_json_array(model_text)
@@ -199,46 +214,23 @@ def call_llm(raw_text):
         ) from exc
 
     if not isinstance(parsed, list):
-        raise AnthropicParseError(
-            'Anthropic output must be a JSON array',
-            preview=model_text[:500],
-            raw_text=model_text,
-            response_debug=response_debug,
-        )
-
-    if len(parsed) < 1:
-        raise AnthropicParseError(
-            'Anthropic output is empty',
-            preview=model_text[:500],
-            raw_text=model_text,
-            response_debug=response_debug,
-        )
+        raise AnthropicParseError('Anthropic output must be a JSON array', preview=model_text[:500], raw_text=model_text, response_debug=response_debug)
 
     normalized = []
-    for item in parsed:
-        if not isinstance(item, dict):
-            raise AnthropicParseError(
-                'Each code must be an object',
-                preview=model_text[:500],
-                raw_text=model_text,
-                response_debug=response_debug,
-            )
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            raise AnthropicParseError('Anthropic output array items must be objects', preview=model_text[:500], raw_text=model_text, response_debug=response_debug)
 
-        code_label = str(item.get('code_label', '')).strip()
-        quote = str(item.get('quote', '')).strip()
-        rationale = str(item.get('rationale', '')).strip()
+        code_name = str(entry.get('code_name', '')).strip()
+        quote = str(entry.get('quote', '')).strip()
+        rationale = str(entry.get('rationale', '')).strip()
 
-        if not code_label or not quote or not rationale:
-            raise AnthropicParseError(
-                'Each code must include code_label, quote, and rationale',
-                preview=model_text[:500],
-                raw_text=model_text,
-                response_debug=response_debug,
-            )
+        if not code_name or not quote or not rationale:
+            raise AnthropicParseError('Anthropic output missing required keys', preview=model_text[:500], raw_text=model_text, response_debug=response_debug)
 
         normalized.append(
             {
-                'code_label': code_label,
+                'code_name': code_name,
                 'quote': quote,
                 'rationale': rationale,
             }
@@ -268,21 +260,20 @@ def is_overloaded_error(details):
     return 'overloaded' in backend_error
 
 
-
-def insert_codes(access_token, document_id, codes):
+def insert_segments(access_token, document_id, segments):
     payload = [
         {
             'document_id': document_id,
-            'code_label': code['code_label'],
-            'quote': code['quote'],
-            'rationale': code['rationale'],
-            'source': 'ai',
+            'code_name': segment['code_name'],
+            'quote': segment['quote'],
+            'rationale': segment['rationale'],
+            'source': 'recode',
         }
-        for code in codes
+        for segment in segments
     ]
 
     req = urllib.request.Request(
-        f"{SUPABASE_URL}/rest/v1/codes",
+        f"{SUPABASE_URL}/rest/v1/segments",
         data=json.dumps(payload).encode('utf-8'),
         method='POST',
         headers={
@@ -344,10 +335,18 @@ class handler(BaseHTTPRequestHandler):
         if not raw_text:
             return send_json(self, 400, {'error': 'Document has no text to analyze'})
 
-        codes = None
+        try:
+            codebook_items = get_approved_codebook(access_token, document_id)
+        except urllib.error.HTTPError:
+            return send_json(self, 500, {'error': 'Could not load codebook'})
+
+        if not codebook_items:
+            return send_json(self, 400, {'error': 'No approved codes in codebook'})
+
+        segments = None
         for attempt in range(2):
             try:
-                codes = call_llm(raw_text)
+                segments = call_llm(raw_text, codebook_items)
                 break
             except urllib.error.HTTPError as exc:
                 details = parse_http_error_details(exc)
@@ -381,24 +380,24 @@ class handler(BaseHTTPRequestHandler):
                 }
                 return send_json(self, 502, payload)
 
-        if codes is None:
+        if segments is None:
             return send_json(self, 502, {'error': 'Anthropic request failed'})
 
         try:
-            rows = insert_codes(access_token, document_id, codes)
+            rows = insert_segments(access_token, document_id, segments)
         except urllib.error.HTTPError:
-            return send_json(self, 500, {'error': 'Could not save codes'})
+            return send_json(self, 500, {'error': 'Could not save segments'})
 
-        response_codes = [
+        response_segments = [
             {
-                'code_label': row.get('code_label'),
+                'code_name': row.get('code_name'),
                 'quote': row.get('quote'),
                 'rationale': row.get('rationale'),
             }
             for row in rows
         ]
 
-        return send_json(self, 200, {'codes': response_codes})
+        return send_json(self, 200, {'segments': response_segments})
 
     def do_GET(self):
         return send_json(self, 405, {'error': 'Method not allowed'})
