@@ -172,6 +172,10 @@ def call_llm(raw_text, codebook_items):
         },
     )
 
+    print('GROQ_KEY_SET:', bool(GROQ_API_KEY), flush=True)
+    print('GROQ_KEY_LENGTH:', len(GROQ_API_KEY) if GROQ_API_KEY else 0, flush=True)
+    print('GROQ_URL: https://api.groq.com/openai/v1/chat/completions', flush=True)
+
     with urllib.request.urlopen(req, timeout=45) as res:
         data = json.loads(res.read().decode('utf-8'))
 
