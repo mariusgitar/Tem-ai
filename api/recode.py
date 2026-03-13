@@ -161,6 +161,8 @@ def call_llm(raw_text, codebook_items):
             ],
         }
     ).encode('utf-8')
+    print('GROQ_BODY_SIZE_BYTES:', len(body), flush=True)
+    print('GROQ_REQUEST_BODY_PREVIEW:', body[:200].decode('utf-8'), flush=True)
 
     req = urllib.request.Request(
         'https://api.groq.com/openai/v1/chat/completions',
