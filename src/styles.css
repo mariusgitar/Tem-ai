@@ -160,8 +160,3 @@ select {
   border-radius: 8px;
   border: 1px solid #d1d5db;
 }
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}

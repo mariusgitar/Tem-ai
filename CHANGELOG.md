@@ -1,8 +1,6 @@
 # Changelog
 
 ## Unreleased
-- Improved visibility of disabled "Kode med kodebok" button
-- Added helper text when no approved codebook items exist
 - Switched LLM provider from Anthropic to Groq (llama-4-maverick) in api/analyze.py to reduce costs
 - Added POST /api/recode endpoint for closed coding using approved codebook entries
 - Added segments table migration with RLS policies
