@@ -131,7 +131,7 @@ def get_document(access_token, document_id):
 def call_anthropic(raw_text):
     body = json.dumps(
         {
-            'model': 'claude-sonnet-4-6',
+            'model': 'claude-haiku-4-5',
             'max_tokens': 1500,
             'temperature': 0,
             'system': SYSTEM_PROMPT,
