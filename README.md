@@ -29,12 +29,6 @@ Serverless function (`/api/upload`):
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-Serverless function (`/api/analyze`):
-
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `GROQ_API_KEY`
-
 ## What is included
 
 - Login screen for unauthenticated users.

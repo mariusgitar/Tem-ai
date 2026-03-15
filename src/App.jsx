@@ -236,7 +236,7 @@ function DocumentPage({ accessToken, documentId }) {
         const isAnalyzeOverloaded =
           response.status === 503 && data?.error === 'Analyze temporarily unavailable'
         const frontendMessage = isAnalyzeOverloaded
-          ? 'Modellen er opptatt akkurat nå. Prøv igjen om litt.'
+          ? 'Claude er opptatt akkurat nå. Prøv igjen om litt.'
           : data.error || 'Analysering feilet'
         console.error('Analyze request failed', {
           status: response.status,
