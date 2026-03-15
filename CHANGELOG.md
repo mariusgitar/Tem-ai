@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Switched analyze.py to claude-haiku-4-5 for cost reduction
 - Added GET /api/documents endpoint that returns all documents for the authenticated user
 - Added DocumentsPage component on the root route showing a clickable list of uploaded documents
 - Completed `/api/analyze` flow for production by disabling temporary debug mode, parsing Anthropic text as JSON, validating array/object shape (`code_label`, `quote`, `rationale`), and returning a normalized `{ "codes": [...] }` response.
