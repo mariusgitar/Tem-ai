@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Replaced status buttons with iOS-style toggle switch in codebook cards
 - Refactored DocumentPage into 4-step wizard with step indicator
 - Moved export/import buttons into wizard steps
 - Restored documents list page and API after revert

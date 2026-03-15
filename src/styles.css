@@ -426,3 +426,64 @@ button:disabled {
   background: var(--color-border);
   border-radius: 99px;
 }
+
+/* ── Toggle switch ───────────────────────────────────── */
+.toggleWrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.toggleSwitch {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.toggleSwitch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggleSlider {
+  position: absolute;
+  inset: 0;
+  background: #cbd5e1;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: background 200ms ease;
+}
+
+.toggleSlider::before {
+  content: '';
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  left: 3px;
+  top: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 200ms ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.toggleSwitch input:checked + .toggleSlider {
+  background: #2563eb;
+}
+
+.toggleSwitch input:checked + .toggleSlider::before {
+  transform: translateX(20px);
+}
+
+.toggleLabel {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.toggleLabel.checked {
+  color: var(--color-primary);
+}
