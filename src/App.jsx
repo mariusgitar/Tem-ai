@@ -432,15 +432,24 @@ function DocumentPage({ accessToken, documentId }) {
                     <h2>{code.code_label}</h2>
                     <p className="quote">"{code.quote}"</p>
                     <p className="meta">{code.rationale}</p>
-                    <ToggleSwitchButton
-                      checked={codebookCodeNames.has(code.code_label)}
-                      onClick={() => handleToggleCodebookCode(code)}
-                      disabled={savingCodebookId === saveKey}
-                      loading={savingCodebookId === saveKey}
-                      labelOn="Lagt til i kodebok"
-                      labelOff="Ikke lagt"
-                      className="full-width"
-                    />
+                    <label className="toggleWrapper">
+                      <span className="toggleSwitch">
+                        <input
+                          type="checkbox"
+                          checked={codebookCodeNames.has(code.code_label)}
+                          onChange={() => handleToggleCodebookCode(code)}
+                          disabled={savingCodebookId === saveKey}
+                        />
+                        <span className="toggleSlider" />
+                      </span>
+                      <span className={`toggleLabel ${codebookCodeNames.has(code.code_label) ? 'checked' : ''}`}>
+                        {savingCodebookId === saveKey
+                          ? 'Lagrer…'
+                          : codebookCodeNames.has(code.code_label)
+                            ? 'Lagt til i kodebok'
+                            : 'Ikke lagt'}
+                      </span>
+                    </label>
                   </article>
                 )
               })}
@@ -511,17 +520,27 @@ function DocumentPage({ accessToken, documentId }) {
                     rows={2} />
                 </label>
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Status</span>
-                    <ToggleSwitchButton
-                      checked={item.status === 'approved'}
-                      onClick={() => handleToggleCodebookApproval(item)}
-                      disabled={savingCodebookId === item.id}
-                      loading={savingCodebookId === item.id}
-                      labelOn="Godkjent"
-                      labelOff="Ikke godkjent"
-                      className="full-width"
-                    />
+                    <label className="toggleWrapper">
+                      <span className="toggleSwitch">
+                        <input
+                          type="checkbox"
+                          checked={item.status === 'approved'}
+                          onChange={(e) =>
+                            handleCodebookFieldChange(
+                              item.id,
+                              'status',
+                              e.target.checked ? 'approved' : 'draft'
+                            )
+                          }
+                        />
+                        <span className="toggleSlider" />
+                      </span>
+                      <span className={`toggleLabel ${item.status === 'approved' ? 'checked' : ''}`}>
+                        {item.status === 'approved' ? 'Godkjent' : 'Draft'}
+                      </span>
+                    </label>
                   </div>
                 </div>
               </article>
