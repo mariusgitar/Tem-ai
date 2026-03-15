@@ -1,10 +1,6 @@
 # Changelog
 
 ## Unreleased
-- Switched LLM provider from Anthropic to Groq (llama-4-maverick) in api/analyze.py to reduce costs
-- Added POST /api/recode endpoint for closed coding using approved codebook entries
-- Added segments table migration with RLS policies
-- Added inline text highlighting in DocumentPage showing coded segments with color per code
 - Added GET /api/documents endpoint that returns all documents for the authenticated user
 - Added DocumentsPage component on the root route showing a clickable list of uploaded documents
 - Completed `/api/analyze` flow for production by disabling temporary debug mode, parsing Anthropic text as JSON, validating array/object shape (`code_label`, `quote`, `rationale`), and returning a normalized `{ "codes": [...] }` response.

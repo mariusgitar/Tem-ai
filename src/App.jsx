@@ -144,9 +144,6 @@ function DocumentPage({ accessToken, documentId }) {
   const [codebookLoading, setCodebookLoading] = useState(false)
   const [codebookError, setCodebookError] = useState('')
   const [savingCodebookId, setSavingCodebookId] = useState('')
-  const [segments, setSegments] = useState([])
-  const [recodeLoading, setRecodeLoading] = useState(false)
-  const [recodeError, setRecodeError] = useState('')
 
   const loadCodebook = async (nextDocumentId) => {
     setCodebookLoading(true)
@@ -198,11 +195,8 @@ function DocumentPage({ accessToken, documentId }) {
 
       setDocument(data)
       setCodes([])
-      setSegments([])
       setAnalysisError('')
       setAnalysisLoading(false)
-      setRecodeError('')
-      setRecodeLoading(false)
       await loadCodebook(data.id)
       setLoading(false)
     }
@@ -346,103 +340,6 @@ function DocumentPage({ accessToken, documentId }) {
     setSavingCodebookId('')
   }
 
-  const handleRecode = async () => {
-    if (!document?.id || recodeLoading) {
-      return
-    }
-
-    setRecodeLoading(true)
-    setRecodeError('')
-
-    try {
-      const response = await fetch('/api/recode', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          document_id: document.id,
-        }),
-      })
-
-      const data = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        setRecodeError(data.error || 'Kunne ikke kode dokumentet med kodebok')
-        setRecodeLoading(false)
-        return
-      }
-
-      setSegments(Array.isArray(data.segments) ? data.segments : [])
-      setRecodeLoading(false)
-    } catch (_error) {
-      setRecodeError('Kunne ikke kontakte serveren for koding med kodebok')
-      setRecodeLoading(false)
-    }
-  }
-
-  const approvedCodebookItems = codebookItems.filter((item) => item.status === 'approved')
-  const colorPalette = ['#fef08a', '#bbf7d0', '#bfdbfe', '#fecaca', '#e9d5ff', '#fed7aa']
-  const codeNames = [...new Set(segments.map((segment) => segment.code_name).filter(Boolean))]
-  const codeColorMap = codeNames.reduce((map, codeName, index) => {
-    map[codeName] = colorPalette[index % colorPalette.length]
-    return map
-  }, {})
-
-  const highlightedParts = []
-  const rawText = document?.raw_text || ''
-  let cursor = 0
-
-  if (segments.length > 0 && rawText) {
-    const matches = []
-    segments.forEach((segment, segmentIndex) => {
-      const quote = segment?.quote || ''
-      if (!quote) {
-        return
-      }
-
-      const start = rawText.indexOf(quote, cursor)
-      if (start === -1) {
-        return
-      }
-
-      matches.push({
-        start,
-        end: start + quote.length,
-        quote,
-        code_name: segment.code_name,
-        segmentIndex,
-      })
-      cursor = start + quote.length
-    })
-
-    cursor = 0
-    matches.forEach((match, matchIndex) => {
-      if (match.start > cursor) {
-        highlightedParts.push(
-          <span key={`text-${matchIndex}-${cursor}`}>{rawText.slice(cursor, match.start)}</span>
-        )
-      }
-
-      highlightedParts.push(
-        <mark
-          key={`mark-${matchIndex}-${match.segmentIndex}`}
-          data-code={match.code_name}
-          style={{ backgroundColor: codeColorMap[match.code_name] || colorPalette[0] }}
-        >
-          {match.quote}
-        </mark>
-      )
-
-      cursor = match.end
-    })
-
-    if (cursor < rawText.length) {
-      highlightedParts.push(<span key={`text-tail-${cursor}`}>{rawText.slice(cursor)}</span>)
-    }
-  }
-
   if (loading) {
     return <main className="content">Laster dokument…</main>
   }
@@ -460,40 +357,13 @@ function DocumentPage({ accessToken, documentId }) {
       <h1>{document.filename}</h1>
       <p className="meta">Lastet opp: {new Date(document.created_at).toLocaleString('nb-NO')}</p>
 
-      <div className="rawText">{highlightedParts.length > 0 ? highlightedParts : document.raw_text}</div>
+      <div className="rawText">{document.raw_text}</div>
 
       <button type="button" onClick={handleAnalyze} disabled={analysisLoading}>
         {analysisLoading ? 'Analyserer…' : 'Analyser dokument'}
       </button>
 
-      <button type="button" onClick={handleRecode} disabled={recodeLoading || approvedCodebookItems.length === 0}>
-        {recodeLoading ? 'Koder teksten…' : 'Kode med kodebok'}
-      </button>
-
       {analysisError ? <p className="error">{analysisError}</p> : null}
-      {recodeError ? <p className="error">{recodeError}</p> : null}
-
-      {segments.length > 0 ? (
-        <section aria-label="Kodede segmenter">
-          <h2>Kodede segmenter</h2>
-          <div>
-            {codeNames.map((codeName) => (
-              <span
-                key={codeName}
-                style={{
-                  backgroundColor: codeColorMap[codeName],
-                  padding: '0.2rem 0.5rem',
-                  borderRadius: '0.5rem',
-                  marginRight: '0.5rem',
-                  display: 'inline-block',
-                }}
-              >
-                {codeName}
-              </span>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       {codes.length > 0 ? (
         <section className="codesList" aria-label="Foreslåtte koder">
