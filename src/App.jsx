@@ -83,6 +83,25 @@ function UploadPage({ accessToken, onOpenUpload }) {
   )
 }
 
+
+function ToggleSwitchButton({ checked, labelOn, labelOff, onClick, disabled, loading, className = '' }) {
+  const label = loading ? 'Lagrer…' : checked ? labelOn : labelOff
+  return (
+    <button
+      type="button"
+      className={`toggleSwitchButton ${checked ? 'is-on' : 'is-off'} ${className}`.trim()}
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={checked}
+    >
+      <span className="toggleSwitchTrack" aria-hidden="true">
+        <span className="toggleSwitchThumb" />
+      </span>
+      <span>{label}</span>
+    </button>
+  )
+}
+
 function DocumentPage({ accessToken, documentId }) {
   const [activeDocument, setActiveDocument] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -413,19 +432,15 @@ function DocumentPage({ accessToken, documentId }) {
                     <h2>{code.code_label}</h2>
                     <p className="quote">"{code.quote}"</p>
                     <p className="meta">{code.rationale}</p>
-                    <button
-                      type="button"
+                    <ToggleSwitchButton
+                      checked={codebookCodeNames.has(code.code_label)}
                       onClick={() => handleToggleCodebookCode(code)}
                       disabled={savingCodebookId === saveKey}
-                      className={codebookCodeNames.has(code.code_label) ? '' : 'btn-secondary'}
-                      aria-pressed={codebookCodeNames.has(code.code_label)}
-                    >
-                      {savingCodebookId === saveKey
-                        ? 'Lagrer…'
-                        : codebookCodeNames.has(code.code_label)
-                          ? 'Lagt til i kodebok'
-                          : 'Ikke lagt'}
-                    </button>
+                      loading={savingCodebookId === saveKey}
+                      labelOn="Lagt til i kodebok"
+                      labelOff="Ikke lagt"
+                      className="full-width"
+                    />
                   </article>
                 )
               })}
@@ -498,20 +513,15 @@ function DocumentPage({ accessToken, documentId }) {
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1 }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Status</span>
-                    <button
-                      type="button"
-                      className={item.status === 'approved' ? '' : 'btn-secondary'}
+                    <ToggleSwitchButton
+                      checked={item.status === 'approved'}
                       onClick={() => handleToggleCodebookApproval(item)}
                       disabled={savingCodebookId === item.id}
-                      aria-pressed={item.status === 'approved'}
-                      style={{ width: '100%' }}
-                    >
-                      {savingCodebookId === item.id
-                        ? 'Lagrer…'
-                        : item.status === 'approved'
-                          ? 'Godkjent'
-                          : 'Ikke godkjent'}
-                    </button>
+                      loading={savingCodebookId === item.id}
+                      labelOn="Godkjent"
+                      labelOff="Ikke godkjent"
+                      className="full-width"
+                    />
                   </div>
                 </div>
               </article>
