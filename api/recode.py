@@ -385,9 +385,6 @@ class handler(BaseHTTPRequestHandler):
                         },
                     }
                     return send_json(self, 502, payload)
-                except Exception as exc:
-                    print('RECODE_LLM_UNEXPECTED_ERROR:', type(exc).__name__, str(exc), flush=True)
-                    return send_json(self, 502, {'error': f'LLM call failed: {type(exc).__name__}: {str(exc)}'})
 
             if segments is None:
                 return send_json(self, 502, {'error': 'Anthropic request failed'})
