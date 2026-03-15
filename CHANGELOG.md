@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Restored documents list page and API after revert
+- Restored recode UI with inline highlighting and color legend
+- Restored recode backend endpoint using claude-haiku-4-5
+- Added disabled button styling
 - Added recode endpoint using claude-haiku-4-5 for closed coding with approved codebook
 - Switched analyze.py to claude-haiku-4-5 for cost reduction
 - Added GET /api/documents endpoint that returns all documents for the authenticated user

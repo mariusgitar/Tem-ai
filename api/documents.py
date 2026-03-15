@@ -24,19 +24,16 @@ def get_user(access_token):
             'apikey': SUPABASE_ANON_KEY,
         },
     )
-
     with urllib.request.urlopen(req) as res:
         return json.loads(res.read().decode('utf-8'))
 
 
-def get_documents(access_token, user_id):
-    params = urllib.parse.urlencode(
-        {
-            'user_id': f'eq.{user_id}',
-            'select': 'id,filename,created_at',
-            'order': 'created_at.desc',
-        }
-    )
+def list_documents(access_token, user_id):
+    params = urllib.parse.urlencode({
+        'user_id': f'eq.{user_id}',
+        'select': 'id,filename,created_at',
+        'order': 'created_at.desc',
+    })
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/documents?{params}",
         headers={
@@ -44,7 +41,6 @@ def get_documents(access_token, user_id):
             'apikey': SUPABASE_ANON_KEY,
         },
     )
-
     with urllib.request.urlopen(req) as res:
         return json.loads(res.read().decode('utf-8'))
 
@@ -66,7 +62,7 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 401, {'error': 'Invalid token'})
 
         try:
-            documents = get_documents(access_token, user['id'])
+            documents = list_documents(access_token, user['id'])
         except urllib.error.HTTPError:
             return send_json(self, 500, {'error': 'Could not load documents'})
 

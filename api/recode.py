@@ -130,11 +130,7 @@ def call_anthropic(raw_text, codebook_items):
         quote = str(item.get('quote', '')).strip()
         rationale = str(item.get('rationale', '')).strip()
         if code_name and quote and rationale:
-            result.append({
-                'code_name': code_name,
-                'quote': quote,
-                'rationale': rationale,
-            })
+            result.append({'code_name': code_name, 'quote': quote, 'rationale': rationale})
 
     if not result:
         raise ParseError('No valid segments in response', raw_text=text)
@@ -239,11 +235,7 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 500, {'error': 'Could not save segments'})
 
         return send_json(self, 200, {'segments': [
-            {
-                'code_name': r.get('code_name'),
-                'quote': r.get('quote'),
-                'rationale': r.get('rationale'),
-            }
+            {'code_name': r.get('code_name'), 'quote': r.get('quote'), 'rationale': r.get('rationale')}
             for r in rows
         ]})
 
