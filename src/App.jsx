@@ -84,7 +84,7 @@ function UploadPage({ accessToken, onOpenUpload }) {
 }
 
 function DocumentPage({ accessToken, documentId }) {
-  const [document, setDocument] = useState(null)
+  const [activeDocument, setActiveDocument] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [analysisLoading, setAnalysisLoading] = useState(false)
@@ -130,7 +130,7 @@ function DocumentPage({ accessToken, documentId }) {
         setLoading(false)
         return
       }
-      setDocument(data)
+      setActiveDocument(data)
       setCodes([])
       setSegments([])
       setAnalysisError('')
@@ -145,13 +145,13 @@ function DocumentPage({ accessToken, documentId }) {
   }, [accessToken, documentId])
 
   const handleAnalyze = async () => {
-    if (!document?.id || analysisLoading) return
+    if (!activeDocument?.id || analysisLoading) return
     setAnalysisLoading(true); setAnalysisError('')
     try {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ document_id: document.id }),
+        body: JSON.stringify({ document_id: activeDocument.id }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -168,13 +168,13 @@ function DocumentPage({ accessToken, documentId }) {
   }
 
   const handleRecode = async () => {
-    if (!document?.id || recodeLoading) return
+    if (!activeDocument?.id || recodeLoading) return
     setRecodeLoading(true); setRecodeError('')
     try {
       const response = await fetch('/api/recode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ document_id: document.id }),
+        body: JSON.stringify({ document_id: activeDocument.id }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -191,14 +191,14 @@ function DocumentPage({ accessToken, documentId }) {
   }
 
   const handleAddToCodebook = async (code) => {
-    if (!document?.id || !code?.code_label) return
+    if (!activeDocument?.id || !code?.code_label) return
     const saveKey = `${code.code_label}-${code.quote}`
     setSavingCodebookId(saveKey); setCodebookError('')
     const response = await fetch('/api/codebook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({
-        document_id: document.id,
+        document_id: activeDocument.id,
         code_name: code.code_label,
         definition: code.rationale || '',
         status: 'draft',
@@ -242,16 +242,16 @@ function DocumentPage({ accessToken, documentId }) {
     const csv = [header, ...rows].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
+    const a = window.document.createElement('a')
     a.href = url
-    a.download = `kodebok_${document.filename || 'export'}.csv`
+    a.download = `kodebok_${activeDocument?.filename || 'export'}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
 
   const importCodebookCSV = async (event) => {
     const file = event.target.files?.[0]
-    if (!file || !document?.id) return
+    if (!file || !activeDocument?.id) return
     const text = await file.text()
     const lines = text.trim().split('\n')
     if (lines.length < 2) return
@@ -277,7 +277,7 @@ function DocumentPage({ accessToken, documentId }) {
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          document_id: document.id,
+          document_id: activeDocument.id,
           code_name,
           definition,
           status: ['draft', 'approved'].includes(status) ? status : 'draft',
@@ -285,7 +285,7 @@ function DocumentPage({ accessToken, documentId }) {
         }),
       })
     }
-    await loadCodebook(document.id)
+    await loadCodebook(activeDocument.id)
     event.target.value = ''
   }
 
@@ -301,9 +301,9 @@ function DocumentPage({ accessToken, documentId }) {
     const csv = [header, ...rows].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
+    const a = window.document.createElement('a')
     a.href = url
-    a.download = `segmenter_${document.filename || 'export'}.csv`
+    a.download = `segmenter_${activeDocument?.filename || 'export'}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -319,7 +319,7 @@ function DocumentPage({ accessToken, documentId }) {
   const codeNames = [...new Set(segments.map((s) => s.code_name).filter(Boolean))]
   const codeColorMap = codeNames.reduce((map, name, i) => { map[name] = colorPalette[i % colorPalette.length]; return map }, {})
 
-  const rawText = document?.raw_text || ''
+  const rawText = activeDocument?.raw_text || ''
   const highlightedParts = []
   if (segments.length > 0 && rawText) {
     let cursor = 0
@@ -352,8 +352,8 @@ function DocumentPage({ accessToken, documentId }) {
   return (
     <main className="wizard">
       <div>
-        <h1 style={{ marginBottom: '0.25rem' }}>{document.filename}</h1>
-        <p className="meta">Lastet opp: {new Date(document.created_at).toLocaleString('nb-NO')}</p>
+        <h1 style={{ marginBottom: '0.25rem' }}>{activeDocument.filename}</h1>
+        <p className="meta">Lastet opp: {new Date(activeDocument.created_at).toLocaleString('nb-NO')}</p>
       </div>
 
       <WizardSteps currentStep={wizardStep} maxReachedStep={maxReachedStep} />
@@ -361,7 +361,7 @@ function DocumentPage({ accessToken, documentId }) {
       {wizardStep === 1 && (
         <div className="wizardCard">
           <h2>Dokument</h2>
-          <div className="rawText">{document.raw_text}</div>
+          <div className="rawText">{activeDocument.raw_text}</div>
           <div className="wizardNav">
             <span />
             <button type="button" onClick={() => setWizardStep(2)}>
@@ -529,11 +529,11 @@ function DocumentPage({ accessToken, documentId }) {
                 </button>
               </div>
               <div className="rawText">
-                {highlightedParts.length > 0 ? highlightedParts : document.raw_text}
+                {highlightedParts.length > 0 ? highlightedParts : activeDocument.raw_text}
               </div>
             </>
           ) : (
-            <div className="rawText">{document.raw_text}</div>
+            <div className="rawText">{activeDocument.raw_text}</div>
           )}
 
           <div className="wizardNav">
