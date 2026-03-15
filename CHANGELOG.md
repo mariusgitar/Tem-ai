@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Added recode endpoint using claude-haiku-4-5 for closed coding with approved codebook
 - Switched analyze.py to claude-haiku-4-5 for cost reduction
 - Added GET /api/documents endpoint that returns all documents for the authenticated user
 - Added DocumentsPage component on the root route showing a clickable list of uploaded documents
