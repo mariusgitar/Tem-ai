@@ -94,6 +94,7 @@ function DocumentPage({ accessToken, documentId }) {
   const [codebookLoading, setCodebookLoading] = useState(false)
   const [codebookError, setCodebookError] = useState('')
   const [savingCodebookId, setSavingCodebookId] = useState('')
+  const codebookCodeNames = new Set(codebookItems.map((item) => item.code_name))
   const [segments, setSegments] = useState([])
   const [recodeLoading, setRecodeLoading] = useState(false)
   const [recodeError, setRecodeError] = useState('')
@@ -391,9 +392,17 @@ function DocumentPage({ accessToken, documentId }) {
                     <h2>{code.code_label}</h2>
                     <p className="quote">"{code.quote}"</p>
                     <p className="meta">{code.rationale}</p>
-                    <button type="button" onClick={() => handleAddToCodebook(code)}
-                      disabled={savingCodebookId === saveKey}>
-                      {savingCodebookId === saveKey ? 'Lagrer…' : 'Legg til i kodebok'}
+                    <button
+                      type="button"
+                      onClick={() => handleAddToCodebook(code)}
+                      disabled={savingCodebookId === saveKey || codebookCodeNames.has(code.code_label)}
+                      className={codebookCodeNames.has(code.code_label) ? 'btn-secondary' : ''}
+                    >
+                      {savingCodebookId === saveKey
+                        ? 'Lagrer…'
+                        : codebookCodeNames.has(code.code_label)
+                          ? 'Lagt til ✓'
+                          : 'Legg til i kodebok'}
                     </button>
                   </article>
                 )
@@ -463,14 +472,27 @@ function DocumentPage({ accessToken, documentId }) {
                     rows={2} />
                 </label>
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
-                  <label style={{ flex: 1 }}>
-                    Status
-                    <select value={item.status || 'draft'}
-                      onChange={(e) => handleCodebookFieldChange(item.id, 'status', e.target.value)}>
-                      <option value="draft">draft</option>
-                      <option value="approved">approved</option>
-                    </select>
-                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1 }}>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Status</span>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        type="button"
+                        className={item.status === 'draft' ? '' : 'btn-secondary'}
+                        onClick={() => handleCodebookFieldChange(item.id, 'status', 'draft')}
+                        style={{ flex: 1 }}
+                      >
+                        Draft
+                      </button>
+                      <button
+                        type="button"
+                        className={item.status === 'approved' ? '' : 'btn-secondary'}
+                        onClick={() => handleCodebookFieldChange(item.id, 'status', 'approved')}
+                        style={{ flex: 1 }}
+                      >
+                        Godkjent ✓
+                      </button>
+                    </div>
+                  </div>
                   <button type="button" onClick={() => handleSaveCodebookItem(item)}
                     disabled={savingCodebookId === item.id}>
                     {savingCodebookId === item.id ? 'Lagrer…' : 'Lagre'}
