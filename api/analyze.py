@@ -9,8 +9,8 @@ from http.server import BaseHTTPRequestHandler
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
-ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
-DEBUG_RETURN_RAW_ANTHROPIC = False
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+DEBUG_RETURN_RAW_MODEL = False
 
 SYSTEM_PROMPT = """Du er en erfaren kvalitativ analytiker.
 Les intervjuteksten og foreslå 4–8 induktive koder.
@@ -26,7 +26,7 @@ Ingen kodeblokker.
 Ingen tekst før eller etter JSON."""
 
 
-class AnthropicParseError(ValueError):
+class ModelParseError(ValueError):
     def __init__(self, message, preview=None, raw_text=None, response_debug=None):
         super().__init__(message)
         self.preview = preview
@@ -44,7 +44,7 @@ def text_preview(value, limit=400):
 def extract_first_json_array(model_text):
     text = (model_text or '').strip()
     if not text:
-        raise AnthropicParseError('Anthropic returned empty text')
+        raise ModelParseError('Model returned empty text')
 
     fence_match = re.search(r'```(?:json)?\s*(.*?)\s*```', text, flags=re.IGNORECASE | re.DOTALL)
     if fence_match:
@@ -52,7 +52,7 @@ def extract_first_json_array(model_text):
 
     start_index = text.find('[')
     if start_index == -1:
-        raise AnthropicParseError('Could not find JSON array in Anthropic output', preview=text_preview(text))
+        raise ModelParseError('Could not find JSON array in model output', preview=text_preview(text))
 
     depth = 0
     in_string = False
@@ -79,7 +79,7 @@ def extract_first_json_array(model_text):
             if depth == 0:
                 return text[start_index : index + 1]
 
-    raise AnthropicParseError('Could not find a complete JSON array in Anthropic output', preview=text_preview(text))
+    raise ModelParseError('Could not find a complete JSON array in model output', preview=text_preview(text))
 
 
 
@@ -128,14 +128,17 @@ def get_document(access_token, document_id):
 
 
 
-def call_anthropic(raw_text):
+def call_groq(raw_text):
     body = json.dumps(
         {
-            'model': 'claude-sonnet-4-6',
+            'model': 'meta-llama/llama-4-scout-17b-16e-instruct',
             'max_tokens': 1500,
             'temperature': 0,
-            'system': SYSTEM_PROMPT,
             'messages': [
+                {
+                    'role': 'system',
+                    'content': SYSTEM_PROMPT,
+                },
                 {
                     'role': 'user',
                     'content': raw_text,
@@ -145,44 +148,45 @@ def call_anthropic(raw_text):
     ).encode('utf-8')
 
     req = urllib.request.Request(
-        'https://api.anthropic.com/v1/messages',
+        'https://api.groq.com/openai/v1/chat/completions',
         data=body,
         method='POST',
         headers={
             'Content-Type': 'application/json',
-            'x-api-key': ANTHROPIC_API_KEY,
-            'anthropic-version': '2023-06-01',
+            'Authorization': f'Bearer {GROQ_API_KEY}',
         },
     )
 
     with urllib.request.urlopen(req, timeout=45) as res:
         data = json.loads(res.read().decode('utf-8'))
 
-    content_blocks = data.get('content') or []
-    if not content_blocks:
-        raise AnthropicParseError('Anthropic returned empty content')
+    choices = data.get('choices') or []
+    if not choices:
+        raise ModelParseError('Model returned empty choices')
+
+    first_choice = choices[0] if isinstance(choices[0], dict) else {}
+    message = first_choice.get('message') if isinstance(first_choice.get('message'), dict) else {}
+    model_text = message.get('content', '')
 
     response_debug = {
-        'content_block_count': len(content_blocks),
-        'first_block_type': content_blocks[0].get('type') if content_blocks else None,
+        'choice_count': len(choices),
+        'first_choice_finish_reason': first_choice.get('finish_reason'),
     }
 
-    text_parts = [block.get('text', '') for block in content_blocks if block.get('type') == 'text']
-    model_text = ''.join(text_parts)
     if not model_text.strip():
-        raise AnthropicParseError('Anthropic returned empty text')
+        raise ModelParseError('Model returned empty text')
 
-    print("ANTHROPIC_RAW_OUTPUT:", model_text[:2000])
+    print("MODEL_RAW_OUTPUT:", model_text[:2000])
 
     try:
         json_array_text = extract_first_json_array(model_text)
         parsed = json.loads(json_array_text)
-    except (json.JSONDecodeError, AnthropicParseError) as exc:
+    except (json.JSONDecodeError, ModelParseError) as exc:
         print(
-            f"Anthropic parse failure. Preview: {text_preview(model_text)}",
+            f"Model parse failure. Preview: {text_preview(model_text)}",
             flush=True,
         )
-        if isinstance(exc, AnthropicParseError):
+        if isinstance(exc, ModelParseError):
             if not exc.preview:
                 exc.preview = model_text[:500]
             if not exc.raw_text:
@@ -190,24 +194,24 @@ def call_anthropic(raw_text):
             if not exc.response_debug:
                 exc.response_debug = response_debug
             raise
-        raise AnthropicParseError(
-            'Anthropic returned invalid JSON',
+        raise ModelParseError(
+            'Model returned invalid JSON',
             preview=model_text[:500],
             raw_text=model_text,
             response_debug=response_debug,
         ) from exc
 
     if not isinstance(parsed, list):
-        raise AnthropicParseError(
-            'Anthropic output must be a JSON array',
+        raise ModelParseError(
+            'Model output must be a JSON array',
             preview=model_text[:500],
             raw_text=model_text,
             response_debug=response_debug,
         )
 
     if len(parsed) < 1:
-        raise AnthropicParseError(
-            'Anthropic output is empty',
+        raise ModelParseError(
+            'Model output is empty',
             preview=model_text[:500],
             raw_text=model_text,
             response_debug=response_debug,
@@ -216,7 +220,7 @@ def call_anthropic(raw_text):
     normalized = []
     for item in parsed:
         if not isinstance(item, dict):
-            raise AnthropicParseError(
+            raise ModelParseError(
                 'Each code must be an object',
                 preview=model_text[:500],
                 raw_text=model_text,
@@ -228,7 +232,7 @@ def call_anthropic(raw_text):
         rationale = str(item.get('rationale', '')).strip()
 
         if not code_label or not quote or not rationale:
-            raise AnthropicParseError(
+            raise ModelParseError(
                 'Each code must include code_label, quote, and rationale',
                 preview=model_text[:500],
                 raw_text=model_text,
@@ -260,11 +264,18 @@ def is_overloaded_error(details):
     error_obj = details.get('error')
     if isinstance(error_obj, dict):
         error_type = str(error_obj.get('type', '')).lower()
+        error_code = str(error_obj.get('code', '')).lower()
         error_message = str(error_obj.get('message', '')).lower()
-        return error_type == 'overloaded_error' or 'overloaded' in error_message
+        return (
+            error_type in {'overloaded_error', 'rate_limit_error'}
+            or error_code in {'rate_limit_exceeded', 'model_overloaded'}
+            or 'overloaded' in error_message
+            or 'rate limit' in error_message
+            or 'too many requests' in error_message
+        )
 
     backend_error = str(details.get('backendError', '')).lower()
-    return 'overloaded' in backend_error
+    return 'overloaded' in backend_error or 'rate limit' in backend_error
 
 
 
@@ -301,8 +312,8 @@ class handler(BaseHTTPRequestHandler):
         if not SUPABASE_URL or not SUPABASE_ANON_KEY:
             return send_json(self, 500, {'error': 'Missing server environment variables'})
 
-        if not ANTHROPIC_API_KEY:
-            return send_json(self, 500, {'error': 'Missing ANTHROPIC_API_KEY'})
+        if not GROQ_API_KEY:
+            return send_json(self, 500, {'error': 'Missing GROQ_API_KEY'})
 
         auth_header = self.headers.get('Authorization', '')
         if not auth_header.startswith('Bearer '):
@@ -346,11 +357,11 @@ class handler(BaseHTTPRequestHandler):
         codes = None
         for attempt in range(2):
             try:
-                codes = call_anthropic(raw_text)
+                codes = call_groq(raw_text)
                 break
             except urllib.error.HTTPError as exc:
                 details = parse_http_error_details(exc)
-                if is_overloaded_error(details):
+                if exc.code == 429 or is_overloaded_error(details):
                     if attempt == 0:
                         time.sleep(0.8)
                         continue
@@ -359,29 +370,29 @@ class handler(BaseHTTPRequestHandler):
                         503,
                         {
                             'error': 'Analyze temporarily unavailable',
-                            'details': 'Claude is overloaded, please try again in a moment',
+                            'details': 'Model is overloaded or rate-limited, please try again in a moment',
                         },
                     )
 
                 error_message = None
                 if isinstance(details, dict):
                     error_message = details.get('error', {}).get('message')
-                return send_json(self, 502, {'error': error_message or 'Anthropic request failed'})
+                return send_json(self, 502, {'error': error_message or 'LLM request failed'})
             except (TimeoutError, urllib.error.URLError):
-                return send_json(self, 502, {'error': 'Anthropic request failed'})
-            except AnthropicParseError as exc:
+                return send_json(self, 502, {'error': 'LLM request failed'})
+            except ModelParseError as exc:
                 payload = {
-                    'error': 'Anthropic returned non-JSON output',
+                    'error': 'Model returned non-JSON output',
                     'raw_text': (exc.raw_text or '')[:4000],
                     'response_debug': {
-                        'content_block_count': exc.response_debug.get('content_block_count'),
-                        'first_block_type': exc.response_debug.get('first_block_type'),
+                        'choice_count': exc.response_debug.get('choice_count'),
+                        'first_choice_finish_reason': exc.response_debug.get('first_choice_finish_reason'),
                     },
                 }
                 return send_json(self, 502, payload)
 
         if codes is None:
-            return send_json(self, 502, {'error': 'Anthropic request failed'})
+            return send_json(self, 502, {'error': 'LLM request failed'})
 
         try:
             rows = insert_codes(access_token, document_id, codes)
