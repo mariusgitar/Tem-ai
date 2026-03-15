@@ -83,6 +83,25 @@ function UploadPage({ accessToken, onOpenUpload }) {
   )
 }
 
+
+function ToggleSwitchButton({ checked, labelOn, labelOff, onClick, disabled, loading, className = '' }) {
+  const label = loading ? 'Lagrer…' : checked ? labelOn : labelOff
+  return (
+    <button
+      type="button"
+      className={`toggleSwitchButton ${checked ? 'is-on' : 'is-off'} ${className}`.trim()}
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={checked}
+    >
+      <span className="toggleSwitchTrack" aria-hidden="true">
+        <span className="toggleSwitchThumb" />
+      </span>
+      <span>{label}</span>
+    </button>
+  )
+}
+
 function DocumentPage({ accessToken, documentId }) {
   const [activeDocument, setActiveDocument] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -242,6 +261,12 @@ function DocumentPage({ accessToken, documentId }) {
     if (!response.ok) { setCodebookError(data.error || 'Kunne ikke oppdatere'); setSavingCodebookId(''); return }
     if (data.item) setCodebookItems((prev) => prev.map((i) => i.id === itemId ? data.item : i))
     setSavingCodebookId('')
+  }
+
+  const handleToggleCodebookApproval = async (item) => {
+    if (!item?.id || savingCodebookId === item.id) return
+    const nextStatus = item.status === 'approved' ? 'draft' : 'approved'
+    await handleSaveCodebookItem(item.id, { status: nextStatus })
   }
 
 
@@ -407,18 +432,15 @@ function DocumentPage({ accessToken, documentId }) {
                     <h2>{code.code_label}</h2>
                     <p className="quote">"{code.quote}"</p>
                     <p className="meta">{code.rationale}</p>
-                    <button
-                      type="button"
+                    <ToggleSwitchButton
+                      checked={codebookCodeNames.has(code.code_label)}
                       onClick={() => handleToggleCodebookCode(code)}
                       disabled={savingCodebookId === saveKey}
-                      className={codebookCodeNames.has(code.code_label) ? 'btn-secondary' : ''}
-                    >
-                      {savingCodebookId === saveKey
-                        ? 'Lagrer…'
-                        : codebookCodeNames.has(code.code_label)
-                          ? 'Fjerne fra kodebok'
-                          : 'Legg til i kodebok'}
-                    </button>
+                      loading={savingCodebookId === saveKey}
+                      labelOn="Lagt til i kodebok"
+                      labelOff="Ikke lagt"
+                      className="full-width"
+                    />
                   </article>
                 )
               })}
@@ -491,26 +513,15 @@ function DocumentPage({ accessToken, documentId }) {
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1 }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Status</span>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button
-                        type="button"
-                        className={item.status === 'draft' ? '' : 'btn-secondary'}
-                        onClick={() => handleSaveCodebookItem(item.id, { status: 'draft' })}
-                        disabled={savingCodebookId === item.id}
-                        style={{ flex: 1 }}
-                      >
-                        Ikke godkjent
-                      </button>
-                      <button
-                        type="button"
-                        className={item.status === 'approved' ? '' : 'btn-secondary'}
-                        onClick={() => handleSaveCodebookItem(item.id, { status: 'approved' })}
-                        disabled={savingCodebookId === item.id}
-                        style={{ flex: 1 }}
-                      >
-                        Godkjent
-                      </button>
-                    </div>
+                    <ToggleSwitchButton
+                      checked={item.status === 'approved'}
+                      onClick={() => handleToggleCodebookApproval(item)}
+                      disabled={savingCodebookId === item.id}
+                      loading={savingCodebookId === item.id}
+                      labelOn="Godkjent"
+                      labelOff="Ikke godkjent"
+                      className="full-width"
+                    />
                   </div>
                 </div>
               </article>
