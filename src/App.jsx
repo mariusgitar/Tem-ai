@@ -432,15 +432,24 @@ function DocumentPage({ accessToken, documentId }) {
                     <h2>{code.code_label}</h2>
                     <p className="quote">"{code.quote}"</p>
                     <p className="meta">{code.rationale}</p>
-                    <ToggleSwitchButton
-                      checked={codebookCodeNames.has(code.code_label)}
-                      onClick={() => handleToggleCodebookCode(code)}
-                      disabled={savingCodebookId === saveKey}
-                      loading={savingCodebookId === saveKey}
-                      labelOn="Lagt til i kodebok"
-                      labelOff="Ikke lagt"
-                      className="full-width"
-                    />
+                    <label className="toggleWrapper">
+                      <span className="toggleSwitch">
+                        <input
+                          type="checkbox"
+                          checked={codebookCodeNames.has(code.code_label)}
+                          onChange={() => handleToggleCodebookCode(code)}
+                          disabled={savingCodebookId === saveKey}
+                        />
+                        <span className="toggleSlider" />
+                      </span>
+                      <span className={`toggleLabel ${codebookCodeNames.has(code.code_label) ? 'checked' : ''}`}>
+                        {savingCodebookId === saveKey
+                          ? 'Lagrer…'
+                          : codebookCodeNames.has(code.code_label)
+                            ? 'Lagt til i kodebok'
+                            : 'Ikke lagt'}
+                      </span>
+                    </label>
                   </article>
                 )
               })}
