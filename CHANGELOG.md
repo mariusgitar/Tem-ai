@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Refactored DocumentPage into 4-step wizard with step indicator
+- Moved export/import buttons into wizard steps
 - Restored documents list page and API after revert
 - Restored recode UI with inline highlighting and color legend
 - Restored recode backend endpoint using claude-haiku-4-5

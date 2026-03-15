@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { supabase } from './supabase'
 
 function LoginPage() {
@@ -97,6 +97,7 @@ function DocumentPage({ accessToken, documentId }) {
   const [segments, setSegments] = useState([])
   const [recodeLoading, setRecodeLoading] = useState(false)
   const [recodeError, setRecodeError] = useState('')
+  const [wizardStep, setWizardStep] = useState(1)
 
   const loadCodebook = async (nextDocumentId) => {
     setCodebookLoading(true)
@@ -227,7 +228,101 @@ function DocumentPage({ accessToken, documentId }) {
     setSavingCodebookId('')
   }
 
+
+
+  const downloadCSV = (filename, header, rows) => {
+    const escapeCell = (value) => {
+      const stringValue = String(value ?? '')
+      return `"${stringValue.replace(/"/g, '""')}"`
+    }
+    const content = [header.map(escapeCell).join(','), ...rows.map((row) => row.map(escapeCell).join(','))].join('\n')
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportCodebookCSV = () => {
+    downloadCSV(
+      `codebook-${document?.id || 'document'}.csv`,
+      ['id', 'code_name', 'definition', 'status'],
+      codebookItems.map((item) => [item.id, item.code_name, item.definition, item.status]),
+    )
+  }
+
+  const importCodebookCSV = async (event) => {
+    const [file] = event.target.files || []
+    event.target.value = ''
+    if (!file) return
+
+    const parseCSVLine = (line) => {
+      const cells = []
+      let current = ''
+      let inQuotes = false
+      for (let i = 0; i < line.length; i += 1) {
+        const char = line[i]
+        if (char === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            current += '"'
+            i += 1
+          } else {
+            inQuotes = !inQuotes
+          }
+        } else if (char === ',' && !inQuotes) {
+          cells.push(current)
+          current = ''
+        } else {
+          current += char
+        }
+      }
+      cells.push(current)
+      return cells
+    }
+
+    const content = await file.text()
+    const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0)
+    if (lines.length < 2) return
+
+    const header = parseCSVLine(lines[0]).map((col) => col.trim())
+    const idIndex = header.indexOf('id')
+    const codeNameIndex = header.indexOf('code_name')
+    const definitionIndex = header.indexOf('definition')
+    const statusIndex = header.indexOf('status')
+
+    const updates = lines.slice(1).map((line) => {
+      const values = parseCSVLine(line)
+      return {
+        id: values[idIndex],
+        code_name: values[codeNameIndex] || '',
+        definition: values[definitionIndex] || '',
+        status: values[statusIndex] || 'draft',
+      }
+    }).filter((item) => item.id)
+
+    for (const item of updates) {
+      await handleSaveCodebookItem(item)
+    }
+    await loadCodebook(document.id)
+  }
+
+  const exportSegmentsCSV = () => {
+    downloadCSV(
+      `segments-${document?.id || 'document'}.csv`,
+      ['id', 'code_name', 'quote'],
+      segments.map((segment) => [segment.id, segment.code_name, segment.quote]),
+    )
+  }
+
   const approvedCodebookItems = codebookItems.filter((item) => item.status === 'approved')
+  const maxReachedStep = Math.max(
+    1,
+    codes.length > 0 ? 2 : 1,
+    codebookItems.length > 0 ? 3 : 1,
+    segments.length > 0 ? 4 : 1,
+  )
   const colorPalette = ['#fef08a', '#bbf7d0', '#bfdbfe', '#fecaca', '#e9d5ff', '#fed7aa']
   const codeNames = [...new Set(segments.map((s) => s.code_name).filter(Boolean))]
   const codeColorMap = codeNames.reduce((map, name, i) => { map[name] = colorPalette[i % colorPalette.length]; return map }, {})
@@ -263,98 +358,237 @@ function DocumentPage({ accessToken, documentId }) {
   if (error) return <main className="content"><p className="error">{error}</p></main>
 
   return (
-    <main className="content documentPage">
-      <h1>{document.filename}</h1>
-      <p className="meta">Lastet opp: {new Date(document.created_at).toLocaleString('nb-NO')}</p>
-
-      <div className="rawText">
-        {highlightedParts.length > 0 ? highlightedParts : document.raw_text}
+    <main className="wizard">
+      <div>
+        <h1 style={{ marginBottom: '0.25rem' }}>{document.filename}</h1>
+        <p className="meta">Lastet opp: {new Date(document.created_at).toLocaleString('nb-NO')}</p>
       </div>
 
-      <button type="button" onClick={handleAnalyze} disabled={analysisLoading}>
-        {analysisLoading ? 'Analyserer…' : 'Analyser dokument'}
-      </button>
+      <WizardSteps currentStep={wizardStep} maxReachedStep={maxReachedStep} />
 
-      <button type="button" onClick={handleRecode}
-        disabled={recodeLoading || approvedCodebookItems.length === 0}>
-        {recodeLoading ? 'Koder teksten…' : 'Kode med kodebok'}
-      </button>
+      {wizardStep === 1 && (
+        <div className="wizardCard">
+          <h2>Dokument</h2>
+          <div className="rawText">{document.raw_text}</div>
+          <div className="wizardNav">
+            <span />
+            <button type="button" onClick={() => setWizardStep(2)}>
+              Start analyse →
+            </button>
+          </div>
+        </div>
+      )}
 
-      {approvedCodebookItems.length === 0 && !recodeLoading ? (
-        <p className="meta">Godkjenn minst én kode i kodeboken for å aktivere denne.</p>
-      ) : null}
+      {wizardStep === 2 && (
+        <div className="wizardCard">
+          <h2>Åpen koding</h2>
+          <p className="meta">AI analyserer teksten og foreslår induktive koder.</p>
 
-      {analysisError ? <p className="error">{analysisError}</p> : null}
-      {recodeError ? <p className="error">{recodeError}</p> : null}
+          <button type="button" onClick={handleAnalyze} disabled={analysisLoading}>
+            {analysisLoading ? 'Analyserer…' : 'Analyser dokument'}
+          </button>
 
-      {segments.length > 0 ? (
-        <section aria-label="Fargekoder">
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', margin: '0.5rem 0' }}>
-            {codeNames.map((name) => (
-              <span key={name} style={{
-                backgroundColor: codeColorMap[name],
-                padding: '0.2rem 0.6rem',
-                borderRadius: '0.5rem',
-                fontSize: '0.85rem',
-              }}>{name}</span>
+          {analysisError ? <p className="error">{analysisError}</p> : null}
+
+          {codes.length > 0 ? (
+            <section className="codesList" aria-label="Foreslåtte koder">
+              {codes.map((code, index) => {
+                const saveKey = `${code.code_label}-${code.quote}`
+                return (
+                  <article className="codeCard" key={code.id || `${code.code_label}-${index}`}>
+                    <h2>{code.code_label}</h2>
+                    <p className="quote">"{code.quote}"</p>
+                    <p className="meta">{code.rationale}</p>
+                    <button type="button" onClick={() => handleAddToCodebook(code)}
+                      disabled={savingCodebookId === saveKey}>
+                      {savingCodebookId === saveKey ? 'Lagrer…' : 'Legg til i kodebok'}
+                    </button>
+                  </article>
+                )
+              })}
+            </section>
+          ) : null}
+
+          <div className="wizardNav">
+            <button type="button" className="btn-secondary"
+              onClick={() => setWizardStep(1)}>
+              ← Tilbake
+            </button>
+            <button type="button" onClick={() => setWizardStep(3)}
+              disabled={codebookItems.length === 0}>
+              Neste: Kodebok →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {wizardStep === 3 && (
+        <div className="wizardCard">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h2>Kodebok</h2>
+              <p className="meta">Rediger og godkjenn koder før lukket koding.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button type="button" className="btn-secondary"
+                onClick={exportCodebookCSV} disabled={codebookItems.length === 0}>
+                Eksporter CSV
+              </button>
+              <label style={{ fontSize: '0.875rem', cursor: 'pointer',
+                display: 'grid', placeItems: 'center' }}>
+                <span className="btn-secondary" style={{
+                  padding: '0.6rem 1.1rem', borderRadius: '6px',
+                  border: '1px solid var(--color-border)',
+                  background: 'var(--color-surface)', cursor: 'pointer',
+                  fontSize: '0.9rem', fontWeight: 500,
+                }}>Importer CSV</span>
+                <input type="file" accept=".csv" onChange={importCodebookCSV}
+                  style={{ display: 'none' }} />
+              </label>
+            </div>
+          </div>
+
+          <div className="divider" />
+
+          {codebookLoading ? <p className="meta">Laster kodebok…</p> : null}
+          {codebookError ? <p className="error">{codebookError}</p> : null}
+          {codebookItems.length === 0 && !codebookLoading ? (
+            <p className="meta">Ingen kodebok-elementer enda. Gå tilbake og analyser dokumentet.</p>
+          ) : null}
+
+          <div className="codebookSection">
+            {codebookItems.map((item) => (
+              <article className="codebookCard" key={item.id}>
+                <label>
+                  Kodenavn
+                  <input type="text" value={item.code_name || ''}
+                    onChange={(e) => handleCodebookFieldChange(item.id, 'code_name', e.target.value)} />
+                </label>
+                <label>
+                  Definisjon
+                  <textarea value={item.definition || ''}
+                    onChange={(e) => handleCodebookFieldChange(item.id, 'definition', e.target.value)}
+                    rows={2} />
+                </label>
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
+                  <label style={{ flex: 1 }}>
+                    Status
+                    <select value={item.status || 'draft'}
+                      onChange={(e) => handleCodebookFieldChange(item.id, 'status', e.target.value)}>
+                      <option value="draft">draft</option>
+                      <option value="approved">approved</option>
+                    </select>
+                  </label>
+                  <button type="button" onClick={() => handleSaveCodebookItem(item)}
+                    disabled={savingCodebookId === item.id}>
+                    {savingCodebookId === item.id ? 'Lagrer…' : 'Lagre'}
+                  </button>
+                </div>
+              </article>
             ))}
           </div>
-        </section>
-      ) : null}
 
-      {codes.length > 0 ? (
-        <section className="codesList" aria-label="Foreslåtte koder">
-          {codes.map((code, index) => {
-            const saveKey = `${code.code_label}-${code.quote}`
-            return (
-              <article className="codeCard" key={code.id || `${code.code_label}-${index}`}>
-                <h2>{code.code_label}</h2>
-                <p className="quote">"{code.quote}"</p>
-                <p>{code.rationale}</p>
-                <button type="button" onClick={() => handleAddToCodebook(code)}
-                  disabled={savingCodebookId === saveKey}>
-                  {savingCodebookId === saveKey ? 'Lagrer…' : 'Legg til i kodebok'}
-                </button>
-              </article>
-            )
-          })}
-        </section>
-      ) : null}
-
-      <section className="codebookSection" aria-label="Kodebok">
-        <h2>Kodebok</h2>
-        {codebookLoading ? <p>Laster kodebok…</p> : null}
-        {codebookError ? <p className="error">{codebookError}</p> : null}
-        {codebookItems.length === 0 && !codebookLoading ? <p>Ingen kodebok-elementer enda.</p> : null}
-        {codebookItems.map((item) => (
-          <article className="codebookCard" key={item.id}>
-            <label>
-              Kodenavn
-              <input type="text" value={item.code_name || ''}
-                onChange={(e) => handleCodebookFieldChange(item.id, 'code_name', e.target.value)} />
-            </label>
-            <label>
-              Definisjon
-              <textarea value={item.definition || ''}
-                onChange={(e) => handleCodebookFieldChange(item.id, 'definition', e.target.value)}
-                rows={3} />
-            </label>
-            <label>
-              Status
-              <select value={item.status || 'draft'}
-                onChange={(e) => handleCodebookFieldChange(item.id, 'status', e.target.value)}>
-                <option value="draft">draft</option>
-                <option value="approved">approved</option>
-              </select>
-            </label>
-            <button type="button" onClick={() => handleSaveCodebookItem(item)}
-              disabled={savingCodebookId === item.id}>
-              {savingCodebookId === item.id ? 'Lagrer…' : 'Lagre endringer'}
+          <div className="wizardNav">
+            <button type="button" className="btn-secondary"
+              onClick={() => setWizardStep(2)}>
+              ← Tilbake
             </button>
-          </article>
-        ))}
-      </section>
+            <button type="button" onClick={() => setWizardStep(4)}
+              disabled={approvedCodebookItems.length === 0}>
+              {approvedCodebookItems.length === 0
+                ? 'Godkjenn minst én kode for å fortsette'
+                : 'Neste: Lukket koding →'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {wizardStep === 4 && (
+        <div className="wizardCard">
+          <div>
+            <h2>Lukket koding</h2>
+            <p className="meta">
+              AI tagger teksten med {approvedCodebookItems.length} godkjente koder.
+            </p>
+          </div>
+
+          <button type="button" onClick={handleRecode} disabled={recodeLoading}>
+            {recodeLoading ? 'Koder teksten…' : 'Kode med kodebok'}
+          </button>
+
+          {recodeError ? <p className="error">{recodeError}</p> : null}
+
+          {segments.length > 0 ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {codeNames.map((name) => (
+                    <span key={name} style={{
+                      backgroundColor: codeColorMap[name],
+                      padding: '0.2rem 0.6rem',
+                      borderRadius: '99px',
+                      fontSize: '0.8rem',
+                      fontWeight: 500,
+                    }}>{name}</span>
+                  ))}
+                </div>
+                <button type="button" className="btn-secondary" onClick={exportSegmentsCSV}>
+                  Eksporter CSV
+                </button>
+              </div>
+              <div className="rawText">
+                {highlightedParts.length > 0 ? highlightedParts : document.raw_text}
+              </div>
+            </>
+          ) : (
+            <div className="rawText">{document.raw_text}</div>
+          )}
+
+          <div className="wizardNav">
+            <button type="button" className="btn-secondary"
+              onClick={() => setWizardStep(3)}>
+              ← Tilbake
+            </button>
+            <span />
+          </div>
+        </div>
+      )}
     </main>
+  )
+}
+
+function WizardSteps({ currentStep, maxReachedStep }) {
+  const steps = [
+    { number: 1, label: 'Dokument' },
+    { number: 2, label: 'Åpen koding' },
+    { number: 3, label: 'Kodebok' },
+    { number: 4, label: 'Lukket koding' },
+  ]
+
+  return (
+    <div className="wizardSteps">
+      {steps.map((step, index) => {
+        const isDone = step.number < currentStep
+        const isActive = step.number === currentStep
+        const isReachable = step.number <= maxReachedStep
+
+        return (
+          <React.Fragment key={step.number}>
+            <div className="wizardStep">
+              <div className={`stepCircle ${isDone ? 'done' : isActive ? 'active' : ''}`}>
+                {isDone ? '✓' : step.number}
+              </div>
+              <span className={`stepLabel ${isDone ? 'done' : isActive ? 'active' : ''}`}>
+                {step.label}
+              </span>
+            </div>
+            {index < steps.length - 1 && (
+              <div className={`stepConnector ${isDone ? 'done' : ''}`} />
+            )}
+          </React.Fragment>
+        )
+      })}
+    </div>
   )
 }
 
