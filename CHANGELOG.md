@@ -1,7 +1,6 @@
 # Changelog
 
 ## Unreleased
-- Rewrote recode.py with simplified structure and ASCII-safe strings to fix silent import crash
 - Improved visibility of disabled "Kode med kodebok" button
 - Added helper text when no approved codebook items exist
 - Switched LLM provider from Anthropic to Groq (llama-4-maverick) in api/analyze.py to reduce costs
