@@ -142,25 +142,31 @@ def get_approved_codebook(access_token, document_id):
 
 
 def call_llm(raw_text, codebook_items):
-    user_content = f"Kodebok:\n{json.dumps(codebook_items, ensure_ascii=True)}\n\nTekst:\n{raw_text}"
+    user_content = f"Kodebok:\n{json.dumps(codebook_items, ensure_ascii=False)}\n\nTekst:\n{raw_text}"
 
-    body = json.dumps(
-        {
-            'model': 'meta-llama/llama-4-maverick-17b-128e-instruct',
-            'max_tokens': 1500,
-            'temperature': 0,
-            'messages': [
-                {
-                    'role': 'system',
-                    'content': RECODE_SYSTEM_PROMPT,
-                },
-                {
-                    'role': 'user',
-                    'content': user_content,
-                },
-            ],
-        }
-    ).encode('utf-8')
+    print('CODEBOOK_ITEMS_TYPE:', type(codebook_items).__name__, flush=True)
+    print('CODEBOOK_ITEMS_PREVIEW:', str(codebook_items)[:200], flush=True)
+    try:
+        body = json.dumps(
+            {
+                'model': 'meta-llama/llama-4-maverick-17b-128e-instruct',
+                'max_tokens': 1500,
+                'temperature': 0,
+                'messages': [
+                    {
+                        'role': 'system',
+                        'content': RECODE_SYSTEM_PROMPT,
+                    },
+                    {
+                        'role': 'user',
+                        'content': user_content,
+                    },
+                ],
+            }
+        ).encode('utf-8')
+    except Exception as e:
+        print('JSON_DUMPS_ERROR:', type(e).__name__, str(e), flush=True)
+        raise
 
     req = urllib.request.Request(
         'https://api.groq.com/openai/v1/chat/completions',
@@ -171,6 +177,10 @@ def call_llm(raw_text, codebook_items):
             'Authorization': f'Bearer {GROQ_API_KEY}',
         },
     )
+
+    print('GROQ_KEY_SET:', bool(GROQ_API_KEY), flush=True)
+    print('GROQ_KEY_LENGTH:', len(GROQ_API_KEY) if GROQ_API_KEY else 0, flush=True)
+    print('GROQ_URL: https://api.groq.com/openai/v1/chat/completions', flush=True)
 
     with urllib.request.urlopen(req, timeout=45) as res:
         data = json.loads(res.read().decode('utf-8'))
@@ -290,116 +300,126 @@ def insert_segments(access_token, document_id, segments):
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
-        if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-            return send_json(self, 500, {'error': 'Missing server environment variables'})
+        import traceback
 
-        if not GROQ_API_KEY:
-            return send_json(self, 500, {'error': 'Missing temai_groq_api_key'})
-
-        auth_header = self.headers.get('Authorization', '')
-        if not auth_header.startswith('Bearer '):
-            return send_json(self, 401, {'error': 'Missing Authorization Bearer token'})
-
-        access_token = auth_header.replace('Bearer ', '', 1).strip()
+        print('RECODE_CALLED', flush=True)
 
         try:
-            user = get_user(access_token)
-        except Exception:
-            return send_json(self, 401, {'error': 'Invalid token'})
+            if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+                return send_json(self, 500, {'error': 'Missing server environment variables'})
 
-        content_length = int(self.headers.get('Content-Length', '0'))
-        if content_length <= 0:
-            return send_json(self, 400, {'error': 'Missing request body'})
+            if not GROQ_API_KEY:
+                return send_json(self, 500, {'error': 'Missing temai_groq_api_key'})
 
-        try:
-            body = json.loads(self.rfile.read(content_length).decode('utf-8'))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return send_json(self, 400, {'error': 'Invalid JSON body'})
+            auth_header = self.headers.get('Authorization', '')
+            if not auth_header.startswith('Bearer '):
+                return send_json(self, 401, {'error': 'Missing Authorization Bearer token'})
 
-        document_id = str(body.get('document_id', '')).strip()
-        if not document_id:
-            return send_json(self, 400, {'error': 'Missing document_id'})
+            access_token = auth_header.replace('Bearer ', '', 1).strip()
 
-        try:
-            document = get_document(access_token, document_id)
-        except urllib.error.HTTPError:
-            return send_json(self, 500, {'error': 'Could not load document'})
-
-        if not document:
-            return send_json(self, 404, {'error': 'Document not found'})
-
-        if document.get('user_id') != user.get('id'):
-            return send_json(self, 403, {'error': 'Forbidden'})
-
-        raw_text = (document.get('raw_text') or '').strip()
-        if not raw_text:
-            return send_json(self, 400, {'error': 'Document has no text to analyze'})
-
-        try:
-            codebook_items = get_approved_codebook(access_token, document_id)
-        except urllib.error.HTTPError:
-            return send_json(self, 500, {'error': 'Could not load codebook'})
-
-        if not codebook_items:
-            return send_json(self, 400, {'error': 'No approved codes in codebook'})
-
-        segments = None
-        for attempt in range(2):
             try:
-                segments = call_llm(raw_text, codebook_items)
-                break
-            except urllib.error.HTTPError as exc:
-                details = parse_http_error_details(exc)
-                if is_overloaded_error(details):
-                    if attempt == 0:
-                        time.sleep(0.8)
-                        continue
-                    return send_json(
-                        self,
-                        503,
-                        {
-                            'error': 'Analyze temporarily unavailable',
-                            'details': 'Claude is overloaded, please try again in a moment',
+                user = get_user(access_token)
+            except Exception:
+                return send_json(self, 401, {'error': 'Invalid token'})
+
+            content_length = int(self.headers.get('Content-Length', '0'))
+            if content_length <= 0:
+                return send_json(self, 400, {'error': 'Missing request body'})
+
+            try:
+                body = json.loads(self.rfile.read(content_length).decode('utf-8'))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return send_json(self, 400, {'error': 'Invalid JSON body'})
+
+            document_id = str(body.get('document_id', '')).strip()
+            if not document_id:
+                return send_json(self, 400, {'error': 'Missing document_id'})
+
+            try:
+                document = get_document(access_token, document_id)
+            except urllib.error.HTTPError:
+                return send_json(self, 500, {'error': 'Could not load document'})
+
+            if not document:
+                return send_json(self, 404, {'error': 'Document not found'})
+
+            if document.get('user_id') != user.get('id'):
+                return send_json(self, 403, {'error': 'Forbidden'})
+
+            raw_text = (document.get('raw_text') or '').strip()
+            if not raw_text:
+                return send_json(self, 400, {'error': 'Document has no text to analyze'})
+
+            try:
+                codebook_items = get_approved_codebook(access_token, document_id)
+            except urllib.error.HTTPError:
+                return send_json(self, 500, {'error': 'Could not load codebook'})
+
+            if not codebook_items:
+                return send_json(self, 400, {'error': 'No approved codes in codebook'})
+
+            segments = None
+            for attempt in range(2):
+                try:
+                    print('RECODE_CALLING_LLM', flush=True)
+                    segments = call_llm(raw_text, codebook_items)
+                    break
+                except urllib.error.HTTPError as exc:
+                    details = parse_http_error_details(exc)
+                    if is_overloaded_error(details):
+                        if attempt == 0:
+                            time.sleep(0.8)
+                            continue
+                        return send_json(
+                            self,
+                            503,
+                            {
+                                'error': 'Analyze temporarily unavailable',
+                                'details': 'Claude is overloaded, please try again in a moment',
+                            },
+                        )
+
+                    error_message = None
+                    if isinstance(details, dict):
+                        error_message = details.get('error', {}).get('message')
+                    return send_json(self, 502, {'error': error_message or 'Anthropic request failed'})
+                except (TimeoutError, urllib.error.URLError):
+                    return send_json(self, 502, {'error': 'Anthropic request failed'})
+                except AnthropicParseError as exc:
+                    payload = {
+                        'error': 'Anthropic returned non-JSON output',
+                        'raw_text': (exc.raw_text or '')[:4000],
+                        'response_debug': {
+                            'content_block_count': exc.response_debug.get('content_block_count'),
+                            'first_block_type': exc.response_debug.get('first_block_type'),
                         },
-                    )
+                    }
+                    return send_json(self, 502, payload)
+                except Exception as exc:
+                    print('RECODE_LLM_UNEXPECTED_ERROR:', type(exc).__name__, str(exc), flush=True)
+                    return send_json(self, 502, {'error': f'LLM call failed: {type(exc).__name__}: {str(exc)}'})
 
-                error_message = None
-                if isinstance(details, dict):
-                    error_message = details.get('error', {}).get('message')
-                return send_json(self, 502, {'error': error_message or 'Anthropic request failed'})
-            except (TimeoutError, urllib.error.URLError):
+            if segments is None:
                 return send_json(self, 502, {'error': 'Anthropic request failed'})
-            except AnthropicParseError as exc:
-                payload = {
-                    'error': 'Anthropic returned non-JSON output',
-                    'raw_text': (exc.raw_text or '')[:4000],
-                    'response_debug': {
-                        'content_block_count': exc.response_debug.get('content_block_count'),
-                        'first_block_type': exc.response_debug.get('first_block_type'),
-                    },
+
+            try:
+                rows = insert_segments(access_token, document_id, segments)
+            except urllib.error.HTTPError:
+                return send_json(self, 500, {'error': 'Could not save segments'})
+
+            response_segments = [
+                {
+                    'code_name': row.get('code_name'),
+                    'quote': row.get('quote'),
+                    'rationale': row.get('rationale'),
                 }
-                return send_json(self, 502, payload)
-            except Exception as exc:
-                return send_json(self, 502, {'error': f'LLM call failed: {type(exc).__name__}: {str(exc)}'})
+                for row in rows
+            ]
 
-        if segments is None:
-            return send_json(self, 502, {'error': 'Anthropic request failed'})
-
-        try:
-            rows = insert_segments(access_token, document_id, segments)
-        except urllib.error.HTTPError:
-            return send_json(self, 500, {'error': 'Could not save segments'})
-
-        response_segments = [
-            {
-                'code_name': row.get('code_name'),
-                'quote': row.get('quote'),
-                'rationale': row.get('rationale'),
-            }
-            for row in rows
-        ]
-
-        return send_json(self, 200, {'segments': response_segments})
+            return send_json(self, 200, {'segments': response_segments})
+        except Exception as e:
+            print('RECODE_UNHANDLED_ERROR:', traceback.format_exc(), flush=True)
+            return send_json(self, 500, {'error': 'Internal server error', 'details': str(e)})
 
     def do_GET(self):
         return send_json(self, 405, {'error': 'Method not allowed'})
