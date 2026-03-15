@@ -244,6 +244,12 @@ function DocumentPage({ accessToken, documentId }) {
     setSavingCodebookId('')
   }
 
+  const handleToggleCodebookApproval = async (item) => {
+    if (!item?.id || savingCodebookId === item.id) return
+    const nextStatus = item.status === 'approved' ? 'draft' : 'approved'
+    await handleSaveCodebookItem(item.id, { status: nextStatus })
+  }
+
 
 
   const exportCodebookCSV = () => {
@@ -411,13 +417,14 @@ function DocumentPage({ accessToken, documentId }) {
                       type="button"
                       onClick={() => handleToggleCodebookCode(code)}
                       disabled={savingCodebookId === saveKey}
-                      className={codebookCodeNames.has(code.code_label) ? 'btn-secondary' : ''}
+                      className={codebookCodeNames.has(code.code_label) ? '' : 'btn-secondary'}
+                      aria-pressed={codebookCodeNames.has(code.code_label)}
                     >
                       {savingCodebookId === saveKey
                         ? 'Lagrer…'
                         : codebookCodeNames.has(code.code_label)
-                          ? 'Fjerne fra kodebok'
-                          : 'Legg til i kodebok'}
+                          ? 'Lagt til i kodebok'
+                          : 'Ikke lagt'}
                     </button>
                   </article>
                 )
@@ -491,26 +498,20 @@ function DocumentPage({ accessToken, documentId }) {
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1 }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Status</span>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button
-                        type="button"
-                        className={item.status === 'draft' ? '' : 'btn-secondary'}
-                        onClick={() => handleSaveCodebookItem(item.id, { status: 'draft' })}
-                        disabled={savingCodebookId === item.id}
-                        style={{ flex: 1 }}
-                      >
-                        Ikke godkjent
-                      </button>
-                      <button
-                        type="button"
-                        className={item.status === 'approved' ? '' : 'btn-secondary'}
-                        onClick={() => handleSaveCodebookItem(item.id, { status: 'approved' })}
-                        disabled={savingCodebookId === item.id}
-                        style={{ flex: 1 }}
-                      >
-                        Godkjent
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className={item.status === 'approved' ? '' : 'btn-secondary'}
+                      onClick={() => handleToggleCodebookApproval(item)}
+                      disabled={savingCodebookId === item.id}
+                      aria-pressed={item.status === 'approved'}
+                      style={{ width: '100%' }}
+                    >
+                      {savingCodebookId === item.id
+                        ? 'Lagrer…'
+                        : item.status === 'approved'
+                          ? 'Godkjent'
+                          : 'Ikke godkjent'}
+                    </button>
                   </div>
                 </div>
               </article>
