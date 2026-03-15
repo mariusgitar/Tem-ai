@@ -230,90 +230,82 @@ function DocumentPage({ accessToken, documentId }) {
 
 
 
-  const downloadCSV = (filename, header, rows) => {
-    const escapeCell = (value) => {
-      const stringValue = String(value ?? '')
-      return `"${stringValue.replace(/"/g, '""')}"`
-    }
-    const content = [header.map(escapeCell).join(','), ...rows.map((row) => row.map(escapeCell).join(','))].join('\n')
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  const exportCodebookCSV = () => {
+    if (codebookItems.length === 0) return
+    const header = 'code_name,definition,status'
+    const rows = codebookItems.map((item) => {
+      const name = `"${(item.code_name || '').replace(/"/g, '""')}"`
+      const def = `"${(item.definition || '').replace(/"/g, '""')}"`
+      const status = `"${(item.status || '').replace(/"/g, '""')}"`
+      return `${name},${def},${status}`
+    })
+    const csv = [header, ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    link.click()
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `kodebok_${document.filename || 'export'}.csv`
+    a.click()
     URL.revokeObjectURL(url)
   }
 
-  const exportCodebookCSV = () => {
-    downloadCSV(
-      `codebook-${document?.id || 'document'}.csv`,
-      ['id', 'code_name', 'definition', 'status'],
-      codebookItems.map((item) => [item.id, item.code_name, item.definition, item.status]),
-    )
-  }
-
   const importCodebookCSV = async (event) => {
-    const [file] = event.target.files || []
-    event.target.value = ''
-    if (!file) return
-
-    const parseCSVLine = (line) => {
-      const cells = []
-      let current = ''
-      let inQuotes = false
-      for (let i = 0; i < line.length; i += 1) {
-        const char = line[i]
-        if (char === '"') {
-          if (inQuotes && line[i + 1] === '"') {
-            current += '"'
-            i += 1
-          } else {
-            inQuotes = !inQuotes
-          }
-        } else if (char === ',' && !inQuotes) {
-          cells.push(current)
-          current = ''
-        } else {
-          current += char
-        }
-      }
-      cells.push(current)
-      return cells
-    }
-
-    const content = await file.text()
-    const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0)
+    const file = event.target.files?.[0]
+    if (!file || !document?.id) return
+    const text = await file.text()
+    const lines = text.trim().split('\n')
     if (lines.length < 2) return
 
-    const header = parseCSVLine(lines[0]).map((col) => col.trim())
-    const idIndex = header.indexOf('id')
-    const codeNameIndex = header.indexOf('code_name')
-    const definitionIndex = header.indexOf('definition')
-    const statusIndex = header.indexOf('status')
-
-    const updates = lines.slice(1).map((line) => {
-      const values = parseCSVLine(line)
-      return {
-        id: values[idIndex],
-        code_name: values[codeNameIndex] || '',
-        definition: values[definitionIndex] || '',
-        status: values[statusIndex] || 'draft',
+    for (const line of lines.slice(1)) {
+      const cols = []
+      let current = ''
+      let inQuotes = false
+      for (const char of line) {
+        if (char === '"') { inQuotes = !inQuotes }
+        else if (char === ',' && !inQuotes) { cols.push(current); current = '' }
+        else { current += char }
       }
-    }).filter((item) => item.id)
-
-    for (const item of updates) {
-      await handleSaveCodebookItem(item)
+      cols.push(current)
+      const code_name = (cols[0] || '').trim()
+      const definition = (cols[1] || '').trim()
+      const status = (cols[2] || 'draft').trim()
+      if (!code_name) continue
+      await fetch('/api/codebook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          document_id: document.id,
+          code_name,
+          definition,
+          status: ['draft', 'approved'].includes(status) ? status : 'draft',
+          source: 'import',
+        }),
+      })
     }
     await loadCodebook(document.id)
+    event.target.value = ''
   }
 
   const exportSegmentsCSV = () => {
-    downloadCSV(
-      `segments-${document?.id || 'document'}.csv`,
-      ['id', 'code_name', 'quote'],
-      segments.map((segment) => [segment.id, segment.code_name, segment.quote]),
-    )
+    if (segments.length === 0) return
+    const header = 'code_name,quote,rationale'
+    const rows = segments.map((s) => {
+      const name = `"${(s.code_name || '').replace(/"/g, '""')}"`
+      const quote = `"${(s.quote || '').replace(/"/g, '""')}"`
+      const rationale = `"${(s.rationale || '').replace(/"/g, '""')}"`
+      return `${name},${quote},${rationale}`
+    })
+    const csv = [header, ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `segmenter_${document.filename || 'export'}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const approvedCodebookItems = codebookItems.filter((item) => item.status === 'approved')
