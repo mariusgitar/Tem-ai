@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 DEBUG_RETURN_RAW_ANTHROPIC = False
 
 SYSTEM_PROMPT = """Du er en erfaren kvalitativ analytiker.
@@ -128,17 +128,14 @@ def get_document(access_token, document_id):
 
 
 
-def call_groq(raw_text):
+def call_anthropic(raw_text):
     body = json.dumps(
         {
-            'model': 'meta-llama/llama-4-scout-17b-16e-instruct',
+            'model': 'claude-sonnet-4-6',
             'max_tokens': 1500,
             'temperature': 0,
+            'system': SYSTEM_PROMPT,
             'messages': [
-                {
-                    'role': 'system',
-                    'content': SYSTEM_PROMPT,
-                },
                 {
                     'role': 'user',
                     'content': raw_text,
@@ -148,26 +145,32 @@ def call_groq(raw_text):
     ).encode('utf-8')
 
     req = urllib.request.Request(
-        'https://api.groq.com/openai/v1/chat/completions',
+        'https://api.anthropic.com/v1/messages',
         data=body,
         method='POST',
         headers={
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {GROQ_API_KEY}',
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
         },
     )
 
     with urllib.request.urlopen(req, timeout=45) as res:
         data = json.loads(res.read().decode('utf-8'))
 
-    model_text = data['choices'][0]['message']['content']
-    if not model_text.strip():
-        raise AnthropicParseError('Anthropic returned empty text')
+    content_blocks = data.get('content') or []
+    if not content_blocks:
+        raise AnthropicParseError('Anthropic returned empty content')
 
     response_debug = {
-        'content_block_count': 1,
-        'first_block_type': 'text',
+        'content_block_count': len(content_blocks),
+        'first_block_type': content_blocks[0].get('type') if content_blocks else None,
     }
+
+    text_parts = [block.get('text', '') for block in content_blocks if block.get('type') == 'text']
+    model_text = ''.join(text_parts)
+    if not model_text.strip():
+        raise AnthropicParseError('Anthropic returned empty text')
 
     print("ANTHROPIC_RAW_OUTPUT:", model_text[:2000])
 
@@ -298,8 +301,8 @@ class handler(BaseHTTPRequestHandler):
         if not SUPABASE_URL or not SUPABASE_ANON_KEY:
             return send_json(self, 500, {'error': 'Missing server environment variables'})
 
-        if not GROQ_API_KEY:
-            return send_json(self, 500, {'error': 'Missing GROQ_API_KEY'})
+        if not ANTHROPIC_API_KEY:
+            return send_json(self, 500, {'error': 'Missing ANTHROPIC_API_KEY'})
 
         auth_header = self.headers.get('Authorization', '')
         if not auth_header.startswith('Bearer '):
@@ -343,7 +346,7 @@ class handler(BaseHTTPRequestHandler):
         codes = None
         for attempt in range(2):
             try:
-                codes = call_groq(raw_text)
+                codes = call_anthropic(raw_text)
                 break
             except urllib.error.HTTPError as exc:
                 details = parse_http_error_details(exc)
