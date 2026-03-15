@@ -101,6 +101,46 @@ def list_codebook_items(access_token, document_id):
         return json.loads(res.read().decode('utf-8'))
 
 
+
+
+def get_codebook_item(access_token, item_id):
+    params = urllib.parse.urlencode(
+        {
+            'id': f'eq.{item_id}',
+            'select': 'id,user_id,document_id',
+            'limit': '1',
+        }
+    )
+
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/codebook?{params}",
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'apikey': SUPABASE_ANON_KEY,
+        },
+    )
+
+    with urllib.request.urlopen(req) as res:
+        rows = json.loads(res.read().decode('utf-8'))
+        return rows[0] if rows else None
+
+
+def delete_codebook_item(access_token, item_id):
+    params = urllib.parse.urlencode({'id': f'eq.{item_id}'})
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/codebook?{params}",
+        method='DELETE',
+        headers={
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': f'Bearer {access_token}',
+            'Prefer': 'return=representation',
+        },
+    )
+
+    with urllib.request.urlopen(req) as res:
+        rows = json.loads(res.read().decode('utf-8'))
+        return rows[0] if rows else None
+
 def update_codebook_item(access_token, item_id, updates):
     params = urllib.parse.urlencode({'id': f'eq.{item_id}'})
     req = urllib.request.Request(
@@ -309,4 +349,47 @@ class handler(BaseHTTPRequestHandler):
         return send_json(self, 405, {'error': 'Method not allowed'})
 
     def do_DELETE(self):
-        return send_json(self, 405, {'error': 'Method not allowed'})
+        if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+            return send_json(self, 500, {'error': 'Missing server environment variables'})
+
+        auth_header = self.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return send_json(self, 401, {'error': 'Missing Authorization Bearer token'})
+
+        access_token = auth_header.replace('Bearer ', '', 1).strip()
+
+        try:
+            user = get_user(access_token)
+        except Exception:
+            return send_json(self, 401, {'error': 'Invalid token'})
+
+        params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        item_id = params.get('id', [''])[0].strip()
+
+        if not item_id:
+            return send_json(self, 400, {'error': 'Missing id query parameter'})
+
+        try:
+            item = get_codebook_item(access_token, item_id)
+        except urllib.error.HTTPError:
+            return send_json(self, 500, {'error': 'Could not load codebook item'})
+
+        if not item:
+            return send_json(self, 404, {'error': 'Codebook item not found'})
+
+        if item.get('user_id') != user.get('id'):
+            return send_json(self, 403, {'error': 'Forbidden'})
+
+        try:
+            deleted_item = delete_codebook_item(access_token, item_id)
+        except urllib.error.HTTPError as exc:
+            return send_json(
+                self,
+                500,
+                {
+                    'error': 'Could not delete codebook item',
+                    'details': parse_http_error_details(exc),
+                },
+            )
+
+        return send_json(self, 200, {'item': deleted_item})

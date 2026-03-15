@@ -95,6 +95,7 @@ function DocumentPage({ accessToken, documentId }) {
   const [codebookError, setCodebookError] = useState('')
   const [savingCodebookId, setSavingCodebookId] = useState('')
   const codebookCodeNames = new Set(codebookItems.map((item) => item.code_name))
+  const codebookItemByName = new Map(codebookItems.map((item) => [item.code_name, item]))
   const [segments, setSegments] = useState([])
   const [recodeLoading, setRecodeLoading] = useState(false)
   const [recodeError, setRecodeError] = useState('')
@@ -191,10 +192,24 @@ function DocumentPage({ accessToken, documentId }) {
     }
   }
 
-  const handleAddToCodebook = async (code) => {
+  const handleToggleCodebookCode = async (code) => {
     if (!activeDocument?.id || !code?.code_label) return
     const saveKey = `${code.code_label}-${code.quote}`
+    const existingItem = codebookItemByName.get(code.code_label)
     setSavingCodebookId(saveKey); setCodebookError('')
+
+    if (existingItem?.id) {
+      const response = await fetch(`/api/codebook?id=${encodeURIComponent(existingItem.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) { setCodebookError(data.error || 'Kunne ikke fjerne'); setSavingCodebookId(''); return }
+      setCodebookItems((prev) => prev.filter((item) => item.id !== existingItem.id))
+      setSavingCodebookId('')
+      return
+    }
+
     const response = await fetch('/api/codebook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
@@ -216,16 +231,16 @@ function DocumentPage({ accessToken, documentId }) {
     setCodebookItems((prev) => prev.map((item) => item.id === itemId ? { ...item, [field]: value } : item))
   }
 
-  const handleSaveCodebookItem = async (item) => {
-    setSavingCodebookId(item.id); setCodebookError('')
+  const handleSaveCodebookItem = async (itemId, updates) => {
+    setSavingCodebookId(itemId); setCodebookError('')
     const response = await fetch('/api/codebook', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ id: item.id, code_name: item.code_name, definition: item.definition || '', status: item.status }),
+      body: JSON.stringify({ id: itemId, ...updates }),
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok) { setCodebookError(data.error || 'Kunne ikke oppdatere'); setSavingCodebookId(''); return }
-    if (data.item) setCodebookItems((prev) => prev.map((i) => i.id === item.id ? data.item : i))
+    if (data.item) setCodebookItems((prev) => prev.map((i) => i.id === itemId ? data.item : i))
     setSavingCodebookId('')
   }
 
@@ -394,14 +409,14 @@ function DocumentPage({ accessToken, documentId }) {
                     <p className="meta">{code.rationale}</p>
                     <button
                       type="button"
-                      onClick={() => handleAddToCodebook(code)}
-                      disabled={savingCodebookId === saveKey || codebookCodeNames.has(code.code_label)}
+                      onClick={() => handleToggleCodebookCode(code)}
+                      disabled={savingCodebookId === saveKey}
                       className={codebookCodeNames.has(code.code_label) ? 'btn-secondary' : ''}
                     >
                       {savingCodebookId === saveKey
                         ? 'Lagrer…'
                         : codebookCodeNames.has(code.code_label)
-                          ? 'Lagt til ✓'
+                          ? 'Fjerne fra kodebok'
                           : 'Legg til i kodebok'}
                     </button>
                   </article>
@@ -463,12 +478,14 @@ function DocumentPage({ accessToken, documentId }) {
                 <label>
                   Kodenavn
                   <input type="text" value={item.code_name || ''}
-                    onChange={(e) => handleCodebookFieldChange(item.id, 'code_name', e.target.value)} />
+                    onChange={(e) => handleCodebookFieldChange(item.id, 'code_name', e.target.value)}
+                    onBlur={() => handleSaveCodebookItem(item.id, { code_name: item.code_name || '' })} />
                 </label>
                 <label>
                   Definisjon
                   <textarea value={item.definition || ''}
                     onChange={(e) => handleCodebookFieldChange(item.id, 'definition', e.target.value)}
+                    onBlur={() => handleSaveCodebookItem(item.id, { definition: item.definition || '' })}
                     rows={2} />
                 </label>
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
@@ -478,25 +495,23 @@ function DocumentPage({ accessToken, documentId }) {
                       <button
                         type="button"
                         className={item.status === 'draft' ? '' : 'btn-secondary'}
-                        onClick={() => handleCodebookFieldChange(item.id, 'status', 'draft')}
+                        onClick={() => handleSaveCodebookItem(item.id, { status: 'draft' })}
+                        disabled={savingCodebookId === item.id}
                         style={{ flex: 1 }}
                       >
-                        Draft
+                        Ikke godkjent
                       </button>
                       <button
                         type="button"
                         className={item.status === 'approved' ? '' : 'btn-secondary'}
-                        onClick={() => handleCodebookFieldChange(item.id, 'status', 'approved')}
+                        onClick={() => handleSaveCodebookItem(item.id, { status: 'approved' })}
+                        disabled={savingCodebookId === item.id}
                         style={{ flex: 1 }}
                       >
-                        Godkjent ✓
+                        Godkjent
                       </button>
                     </div>
                   </div>
-                  <button type="button" onClick={() => handleSaveCodebookItem(item)}
-                    disabled={savingCodebookId === item.id}>
-                    {savingCodebookId === item.id ? 'Lagrer…' : 'Lagre'}
-                  </button>
                 </div>
               </article>
             ))}
