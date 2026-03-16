@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Switched LLM provider from Anthropic direct to OpenRouter
+- Added model selector dropdown in open coding step
+- Both analyze and recode endpoints now accept a model parameter
+- Supported models: Claude Haiku, Claude Sonnet, Llama 4 Scout/Maverick, Gemini Flash, GPT-4o Mini
 - Added document type dropdown and context field to open coding step
 - Context and document type are passed to Claude for improved analysis quality
 - Context note shown to user when context is set
