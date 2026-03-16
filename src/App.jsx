@@ -264,7 +264,7 @@ function DocumentPage({ accessToken, documentId }) {
   const [wizardStep, setWizardStep] = useState(1)
   const [analysisContext, setAnalysisContext] = useState('')
   const [documentType, setDocumentType] = useState('')
-  const [selectedModel, setSelectedModel] = useState('anthropic/claude-sonnet-4-5')
+  const [selectedModel, setSelectedModel] = useState('anthropic/claude-haiku-4-5')
 
   const loadCodebook = async (nextDocumentId) => {
     setCodebookLoading(true)
@@ -851,6 +851,33 @@ function DocumentPage({ accessToken, documentId }) {
               AI tagger teksten med {approvedCodebookItems.length} godkjente koder.
             </p>
           </div>
+
+          <label>
+            Modell for lukket koding
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+            >
+              <option value="anthropic/claude-haiku-4-5">
+                Claude Haiku 4.5 ✦ Anbefalt – rask og billig
+              </option>
+              <option value="anthropic/claude-sonnet-4-5">
+                Claude Sonnet 4.5 – høyere kvalitet
+              </option>
+              <option value="meta-llama/llama-4-maverick">
+                Llama 4 Maverick (gratis)
+              </option>
+              <option value="meta-llama/llama-4-scout">
+                Llama 4 Scout (gratis)
+              </option>
+              <option value="google/gemini-flash-1.5">
+                Gemini Flash 1.5 (veldig billig)
+              </option>
+              <option value="openai/gpt-4o-mini">
+                GPT-4o Mini
+              </option>
+            </select>
+          </label>
 
           <button type="button" onClick={handleRecode} disabled={recodeLoading}>
             {recodeLoading ? 'Koder teksten…' : 'Kode med kodebok'}

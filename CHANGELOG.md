@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Moved model selector from open coding to closed coding step
+- Default model for closed coding is Claude Haiku 4.5
 - Implemented two-round iterative open coding
 - Round 1: Claude Haiku for broad systematic coverage
 - Round 2: Llama 4 Maverick to find themes Haiku missed
