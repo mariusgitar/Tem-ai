@@ -28,14 +28,16 @@ def get_user(access_token):
         return json.loads(res.read().decode('utf-8'))
 
 
-def insert_document(access_token, user_id, filename, raw_text):
-    body = json.dumps(
-        {
-            'user_id': user_id,
-            'filename': filename,
-            'raw_text': raw_text,
-        }
-    ).encode('utf-8')
+def insert_document(access_token, user_id, filename, raw_text,
+                    project_id=None):
+    body_data = {
+        'user_id': user_id,
+        'filename': filename,
+        'raw_text': raw_text,
+    }
+    if project_id:
+        body_data['project_id'] = project_id
+    body = json.dumps(body_data).encode('utf-8')
 
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/documents",
@@ -65,6 +67,8 @@ class handler(BaseHTTPRequestHandler):
 
         access_token = auth_header.replace('Bearer ', '', 1).strip()
 
+        project_id = ''
+
         try:
             user = get_user(access_token)
         except Exception:
@@ -86,6 +90,10 @@ class handler(BaseHTTPRequestHandler):
         if 'file' not in form:
             return send_json(self, 400, {'error': 'Missing file'})
 
+        if 'project_id' in form:
+            val = form['project_id']
+            project_id = (val.value if hasattr(val, 'value') else str(val)).strip()
+
         file_field = form['file']
         if not getattr(file_field, 'file', None):
             return send_json(self, 400, {'error': 'Missing file'})
@@ -98,7 +106,13 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 400, {'error': 'File must be UTF-8 text'})
 
         try:
-            row = insert_document(access_token, user['id'], filename, raw_text)
+            row = insert_document(
+                access_token,
+                user['id'],
+                filename,
+                raw_text,
+                project_id,
+            )
         except Exception:
             return send_json(self, 500, {'error': 'Could not save document'})
 

@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added projects table with RLS as core organizational unit
+- Added GET and POST /api/projects endpoint
+- Codebook now lives at project level and is shared across documents
+- Analysis now fetches existing project codebook and suggests only new codes
+- Response includes overlap_count and new_count for UI feedback
+- Upload accepts project_id to associate document with project
 - Moved model selector from open coding to closed coding step
 - Default model for closed coding is Claude Haiku 4.5
 - Implemented two-round iterative open coding

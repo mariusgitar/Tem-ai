@@ -25,7 +25,11 @@ Eksempel på DÅRLIG kode: "Vanskelig å finne informasjon"
 Eksempel på GOD kode: "Fragmentert tjenestelandskap som navigasjonsbarriere"
 
 Returner kun en gyldig JSON-array. Ingen markdown. Ingen prose.
-Hvert element: code_label, quote, rationale."""
+Hvert element: code_label, quote, rationale.
+
+Hvis en eksisterende kodebok er oppgitt: foreslå KUN koder som 
+ikke allerede er dekket. Returner tom liste [] hvis ingen nye 
+koder er nødvendige."""
 
 SYSTEM_PROMPT_ROUND2 = """Du er en kritisk kvalitativ forsker og din oppgave er å finne det den første koderen gikk glipp av.
 
@@ -87,6 +91,25 @@ def get_document(access_token, document_id):
     with urllib.request.urlopen(req) as res:
         rows = json.loads(res.read().decode('utf-8'))
         return rows[0] if rows else None
+
+
+def get_project_codebook(access_token, project_id):
+    if not project_id:
+        return []
+    params = urllib.parse.urlencode({
+        'project_id': f'eq.{project_id}',
+        'select': 'code_name,definition',
+        'order': 'created_at.asc',
+    })
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/codebook?{params}",
+        headers={
+            'Authorization': f'Bearer {access_token}',
+            'apikey': SUPABASE_ANON_KEY,
+        },
+    )
+    with urllib.request.urlopen(req) as res:
+        return json.loads(res.read().decode('utf-8'))
 
 
 def call_openrouter(system_prompt, user_content, model, max_tokens=3000):
@@ -173,7 +196,8 @@ def deduplicate_codes(round1, round2):
     return merged
 
 
-def run_iterative_coding(raw_text, document_type='', context=''):
+def run_iterative_coding(raw_text, document_type='', context='',
+                         existing_codebook=None):
     word_count = len(raw_text.split())
     max_tokens = min(4000, max(1500, word_count // 2))
 
@@ -188,6 +212,13 @@ def run_iterative_coding(raw_text, document_type='', context=''):
         context_parts.append(f"Dokumenttype: {document_type}")
     if context:
         context_parts.append(f"Analysekontekst: {context}")
+    if existing_codebook:
+        existing_names = [c['code_name'] for c in existing_codebook]
+        existing_json = json.dumps(existing_names, ensure_ascii=True)
+        context_parts.append(
+            "Eksisterende kodebok (ikke gjenta disse, finn KUN nye koder): "
+            + existing_json
+        )
 
     user_content_r1 = "\n".join(context_parts) + "\n\n---\n\n" + raw_text
 
@@ -230,7 +261,21 @@ def run_iterative_coding(raw_text, document_type='', context=''):
     if not merged:
         raise LLMParseError('No valid codes after both rounds')
 
-    return merged
+    existing_labels = {c['code_name'].lower() for c in (existing_codebook or [])}
+    overlap_count = sum(
+        1 for c in merged
+        if c['code_label'].lower() in existing_labels
+    )
+    new_codes = [
+        c for c in merged
+        if c['code_label'].lower() not in existing_labels
+    ]
+
+    return {
+        'codes': new_codes,
+        'overlap_count': overlap_count,
+        'total_existing': len(existing_codebook or []),
+    }
 
 
 def insert_codes(access_token, document_id, codes):
@@ -286,6 +331,7 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 400, {'error': 'Invalid JSON body'})
 
         document_id = str(body.get('document_id', '')).strip()
+        project_id = str(body.get('project_id', '')).strip()
         document_type = str(body.get('document_type', '')).strip()
         context = str(body.get('context', '')).strip()
 
@@ -306,8 +352,23 @@ class handler(BaseHTTPRequestHandler):
         if not raw_text:
             return send_json(self, 400, {'error': 'Document has no text'})
 
+        existing_codebook = []
+        if project_id:
+            try:
+                existing_codebook = get_project_codebook(access_token, project_id)
+            except Exception:
+                existing_codebook = []
+
         try:
-            codes = run_iterative_coding(raw_text, document_type, context)
+            result = run_iterative_coding(
+                raw_text,
+                document_type,
+                context,
+                existing_codebook=existing_codebook,
+            )
+            codes = result['codes']
+            overlap_count = result['overlap_count']
+            total_existing = result['total_existing']
         except urllib.error.HTTPError as exc:
             try:
                 details = json.loads(exc.read().decode('utf-8'))
@@ -331,7 +392,11 @@ class handler(BaseHTTPRequestHandler):
                 'rationale': r.get('rationale'),
             }
             for r in rows
-        ]})
+        ],
+            'overlap_count': overlap_count,
+            'total_existing': total_existing,
+            'new_count': len(codes),
+        })
 
     def do_GET(self):
         return send_json(self, 405, {'error': 'Method not allowed'})
