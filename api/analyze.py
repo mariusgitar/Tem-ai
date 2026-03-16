@@ -128,7 +128,18 @@ def get_document(access_token, document_id):
 
 
 
-def call_anthropic(raw_text):
+def call_anthropic(raw_text, document_type='', context=''):
+    context_parts = []
+    if document_type:
+        context_parts.append(f"Dokumenttype: {document_type}")
+    if context:
+        context_parts.append(f"Analysekontekst: {context}")
+
+    if context_parts:
+        user_content = "\n".join(context_parts) + "\n\n---\n\n" + raw_text
+    else:
+        user_content = raw_text
+
     body = json.dumps(
         {
             'model': 'claude-haiku-4-5',
@@ -138,7 +149,7 @@ def call_anthropic(raw_text):
             'messages': [
                 {
                     'role': 'user',
-                    'content': raw_text,
+                    'content': user_content,
                 }
             ],
         }
@@ -325,6 +336,8 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 400, {'error': 'Invalid JSON body'})
 
         document_id = str(body.get('document_id', '')).strip()
+        document_type = str(body.get('document_type', '')).strip()
+        context = str(body.get('context', '')).strip()
         if not document_id:
             return send_json(self, 400, {'error': 'Missing document_id'})
 
@@ -346,7 +359,7 @@ class handler(BaseHTTPRequestHandler):
         codes = None
         for attempt in range(2):
             try:
-                codes = call_anthropic(raw_text)
+                codes = call_anthropic(raw_text, document_type=document_type, context=context)
                 break
             except urllib.error.HTTPError as exc:
                 details = parse_http_error_details(exc)

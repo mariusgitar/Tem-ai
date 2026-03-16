@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Added document type dropdown and context field to open coding step
+- Context and document type are passed to Claude for improved analysis quality
+- Context note shown to user when context is set
 - Replaced open-coding add/remove code buttons with iOS-style toggle switch
 - Replaced status buttons with iOS-style toggle switch in codebook cards
 - Refactored DocumentPage into 4-step wizard with step indicator
