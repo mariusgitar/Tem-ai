@@ -1,7 +1,5 @@
 import json
 import os
-import re
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -10,84 +8,48 @@ from http.server import BaseHTTPRequestHandler
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
-DEBUG_RETURN_RAW_ANTHROPIC = False
 
-SYSTEM_PROMPT = """Du er en erfaren kvalitativ forsker med bakgrunn i tematisk analyse.
+SYSTEM_PROMPT_ROUND1 = """Du er en erfaren kvalitativ forsker.
 
-Les teksten og identifiser induktive koder.
+Din oppgave er å gjennomføre åpen koding av teksten nedenfor.
 
 Regler:
-- Kodeetiketter skal være ANALYTISKE og KONSEPTUELLE – ikke deskriptive omskrivninger av det som sies. Løft meningen, ikke bare teksten.
+- Kode BREDT og SYSTEMATISK – dekk alle temaer i teksten.
+- Kodeetiketter skal være ANALYTISKE og KONSEPTUELLE, ikke deskriptive omskrivninger.
 - Velg sitater som er lange nok til å gi kontekst (minst én hel setning).
 - Samme kode kan brukes flere ganger med ulike sitater hvis teksten støtter det.
 - Rationale skal forklare den analytiske tolkningen, ikke bare beskrive sitatet.
-- Slå sammen koder som dekker samme konsept – unngå overlapp og redundans.
-- Prioriter kvalitet over kvantitet.
+- Slå sammen koder som dekker samme konsept.
 
 Eksempel på DÅRLIG kode: "Vanskelig å finne informasjon"
 Eksempel på GOD kode: "Fragmentert tjenestelandskap som navigasjonsbarriere"
 
-Returner kun en gyldig JSON-array.
-Ingen markdown. Ingen prose. Ingen kodeblokker.
-Ingen tekst før eller etter JSON.
+Returner kun en gyldig JSON-array. Ingen markdown. Ingen prose.
+Hvert element: code_label, quote, rationale."""
+
+SYSTEM_PROMPT_ROUND2 = """Du er en kritisk kvalitativ forsker og din oppgave er å finne det den første koderen gikk glipp av.
+
+Du får:
+1. Den originale teksten
+2. Koder fra runde 1
+
+Din oppgave:
+- Les teksten grundig og identifiser temaer og mønstre som IKKE er dekket av runde 1-kodene.
+- Fokuser spesielt på: implisitte temaer, emosjonelle undertoner, systemiske mønstre, og det som sies mellom linjene.
+- IKKE gjenta koder som allerede er dekket av runde 1.
+- Hvis runde 1 har dekket teksten godt, er det helt greit å returnere en tom liste [].
+
+Kodeetiketter skal være ANALYTISKE og KONSEPTUELLE.
+Velg sitater som er lange nok til å gi kontekst (minst én hel setning).
+
+Returner kun en gyldig JSON-array. Ingen markdown. Ingen prose.
 Hvert element: code_label, quote, rationale."""
 
 
-class AnthropicParseError(ValueError):
-    def __init__(self, message, preview=None, raw_text=None, response_debug=None):
+class LLMParseError(ValueError):
+    def __init__(self, message, raw_text=None):
         super().__init__(message)
-        self.preview = preview
         self.raw_text = raw_text
-        self.response_debug = response_debug or {}
-
-
-def text_preview(value, limit=400):
-    clean = (value or '').replace('\n', '\\n').strip()
-    if len(clean) <= limit:
-        return clean
-    return f"{clean[:limit]}..."
-
-
-def extract_first_json_array(model_text):
-    text = (model_text or '').strip()
-    if not text:
-        raise AnthropicParseError('Anthropic returned empty text')
-
-    fence_match = re.search(r'```(?:json)?\s*(.*?)\s*```', text, flags=re.IGNORECASE | re.DOTALL)
-    if fence_match:
-        text = fence_match.group(1).strip()
-
-    start_index = text.find('[')
-    if start_index == -1:
-        raise AnthropicParseError('Could not find JSON array in Anthropic output', preview=text_preview(text))
-
-    depth = 0
-    in_string = False
-    escaped = False
-
-    for index in range(start_index, len(text)):
-        char = text[index]
-
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == '\\':
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-
-        if char == '"':
-            in_string = True
-        elif char == '[':
-            depth += 1
-        elif char == ']':
-            depth -= 1
-            if depth == 0:
-                return text[start_index : index + 1]
-
-    raise AnthropicParseError('Could not find a complete JSON array in Anthropic output', preview=text_preview(text))
-
 
 
 def send_json(handler, status_code, payload):
@@ -95,7 +57,6 @@ def send_json(handler, status_code, payload):
     handler.send_header('Content-Type', 'application/json')
     handler.end_headers()
     handler.wfile.write(json.dumps(payload).encode('utf-8'))
-
 
 
 def get_user(access_token):
@@ -106,21 +67,16 @@ def get_user(access_token):
             'apikey': SUPABASE_ANON_KEY,
         },
     )
-
     with urllib.request.urlopen(req) as res:
         return json.loads(res.read().decode('utf-8'))
 
 
-
 def get_document(access_token, document_id):
-    params = urllib.parse.urlencode(
-        {
-            'id': f'eq.{document_id}',
-            'select': 'id,user_id,raw_text',
-            'limit': '1',
-        }
-    )
-
+    params = urllib.parse.urlencode({
+        'id': f'eq.{document_id}',
+        'select': 'id,user_id,raw_text',
+        'limit': '1',
+    })
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/documents?{params}",
         headers={
@@ -128,44 +84,21 @@ def get_document(access_token, document_id):
             'apikey': SUPABASE_ANON_KEY,
         },
     )
-
     with urllib.request.urlopen(req) as res:
         rows = json.loads(res.read().decode('utf-8'))
         return rows[0] if rows else None
 
 
-
-def call_anthropic(raw_text, document_type='', context='', model='anthropic/claude-haiku-4-5'):
-    word_count = len(raw_text.split())
-    max_tokens = min(4000, max(1500, word_count // 2))
-    min_codes = max(3, min(8, word_count // 150))
-    max_codes = max(5, min(20, word_count // 80))
-
-    dynamic_instruction = (
-        f"Foreslå mellom {min_codes} og {max_codes} koder basert på "
-        f"tekstens lengde og tematiske rikdom ({word_count} ord)."
-    )
-
-    context_parts = []
-    context_parts.append(dynamic_instruction)
-    if document_type:
-        context_parts.append(f"Dokumenttype: {document_type}")
-    if context:
-        context_parts.append(f"Analysekontekst: {context}")
-
-    user_content = "\n".join(context_parts) + "\n\n---\n\n" + raw_text
-
-    body = json.dumps(
-        {
-            'model': model,
-            'max_tokens': max_tokens,
-            'temperature': 0,
-            'messages': [
-                {'role': 'system', 'content': SYSTEM_PROMPT},
-                {'role': 'user', 'content': user_content},
-            ],
-        }
-    ).encode('utf-8')
+def call_openrouter(system_prompt, user_content, model, max_tokens=3000):
+    body = json.dumps({
+        'model': model,
+        'max_tokens': max_tokens,
+        'temperature': 0,
+        'messages': [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_content},
+        ],
+    }).encode('utf-8')
 
     req = urllib.request.Request(
         'https://openrouter.ai/api/v1/chat/completions',
@@ -179,137 +112,138 @@ def call_anthropic(raw_text, document_type='', context='', model='anthropic/clau
         },
     )
 
-    with urllib.request.urlopen(req, timeout=45) as res:
+    with urllib.request.urlopen(req, timeout=60) as res:
         data = json.loads(res.read().decode('utf-8'))
 
     choices = data.get('choices') or []
     if not choices:
-        raise AnthropicParseError('Empty response from model')
+        raise LLMParseError('Empty response from model')
 
     text = choices[0].get('message', {}).get('content', '') or ''
     if not text.strip():
-        raise AnthropicParseError('Empty text from model')
+        raise LLMParseError('Empty text from model')
 
-    content_blocks = [{'type': 'text', 'text': text}]
+    return text
 
-    response_debug = {
-        'content_block_count': len(content_blocks),
-        'first_block_type': content_blocks[0].get('type') if content_blocks else None,
-    }
 
-    text_parts = [block.get('text', '') for block in content_blocks if block.get('type') == 'text']
-    model_text = ''.join(text_parts)
-    if not model_text.strip():
-        raise AnthropicParseError('Anthropic returned empty text')
-
-    print("ANTHROPIC_RAW_OUTPUT:", model_text[:2000])
+def parse_codes(text):
+    start = text.find('[')
+    end = text.rfind(']')
+    if start == -1 or end == -1:
+        return []
 
     try:
-        json_array_text = extract_first_json_array(model_text)
-        parsed = json.loads(json_array_text)
-    except (json.JSONDecodeError, AnthropicParseError) as exc:
-        print(
-            f"Anthropic parse failure. Preview: {text_preview(model_text)}",
-            flush=True,
-        )
-        if isinstance(exc, AnthropicParseError):
-            if not exc.preview:
-                exc.preview = model_text[:500]
-            if not exc.raw_text:
-                exc.raw_text = model_text
-            if not exc.response_debug:
-                exc.response_debug = response_debug
-            raise
-        raise AnthropicParseError(
-            'Anthropic returned invalid JSON',
-            preview=model_text[:500],
-            raw_text=model_text,
-            response_debug=response_debug,
-        ) from exc
+        parsed = json.loads(text[start:end + 1])
+    except json.JSONDecodeError:
+        return []
 
     if not isinstance(parsed, list):
-        raise AnthropicParseError(
-            'Anthropic output must be a JSON array',
-            preview=model_text[:500],
-            raw_text=model_text,
-            response_debug=response_debug,
-        )
+        return []
 
-    if len(parsed) < 1:
-        raise AnthropicParseError(
-            'Anthropic output is empty',
-            preview=model_text[:500],
-            raw_text=model_text,
-            response_debug=response_debug,
-        )
-
-    normalized = []
+    result = []
     for item in parsed:
         if not isinstance(item, dict):
-            raise AnthropicParseError(
-                'Each code must be an object',
-                preview=model_text[:500],
-                raw_text=model_text,
-                response_debug=response_debug,
-            )
-
+            continue
         code_label = str(item.get('code_label', '')).strip()
         quote = str(item.get('quote', '')).strip()
         rationale = str(item.get('rationale', '')).strip()
-
-        if not code_label or not quote or not rationale:
-            raise AnthropicParseError(
-                'Each code must include code_label, quote, and rationale',
-                preview=model_text[:500],
-                raw_text=model_text,
-                response_debug=response_debug,
-            )
-
-        normalized.append(
-            {
+        if code_label and quote and rationale:
+            result.append({
                 'code_label': code_label,
                 'quote': quote,
                 'rationale': rationale,
-            }
-        )
+            })
 
-    return normalized
-
-
-def parse_http_error_details(exc):
-    try:
-        return json.loads(exc.read().decode('utf-8'))
-    except Exception:
-        return None
+    return result
 
 
-def is_overloaded_error(details):
-    if not isinstance(details, dict):
-        return False
+def deduplicate_codes(round1, round2):
+    seen_labels = {c['code_label'].lower() for c in round1}
+    seen_quotes = {c['quote'][:50].lower() for c in round1}
 
-    error_obj = details.get('error')
-    if isinstance(error_obj, dict):
-        error_type = str(error_obj.get('type', '')).lower()
-        error_message = str(error_obj.get('message', '')).lower()
-        return error_type == 'overloaded_error' or 'overloaded' in error_message
+    merged = list(round1)
+    for code in round2:
+        label_key = code['code_label'].lower()
+        quote_key = code['quote'][:50].lower()
+        if label_key not in seen_labels and quote_key not in seen_quotes:
+            merged.append(code)
+            seen_labels.add(label_key)
+            seen_quotes.add(quote_key)
 
-    backend_error = str(details.get('backendError', '')).lower()
-    return 'overloaded' in backend_error
+    return merged
 
+
+def run_iterative_coding(raw_text, document_type='', context=''):
+    word_count = len(raw_text.split())
+    max_tokens = min(4000, max(1500, word_count // 2))
+
+    context_parts = []
+    min_codes = max(3, min(8, word_count // 150))
+    max_codes = max(5, min(20, word_count // 80))
+    context_parts.append(
+        f"Foreslå mellom {min_codes} og {max_codes} koder basert på "
+        f"tekstens lengde og tematiske rikdom ({word_count} ord)."
+    )
+    if document_type:
+        context_parts.append(f"Dokumenttype: {document_type}")
+    if context:
+        context_parts.append(f"Analysekontekst: {context}")
+
+    user_content_r1 = "\n".join(context_parts) + "\n\n---\n\n" + raw_text
+
+    # Round 1: Haiku – broad systematic coding
+    print("ANALYZE_ROUND1_START", flush=True)
+    text_r1 = call_openrouter(
+        system_prompt=SYSTEM_PROMPT_ROUND1,
+        user_content=user_content_r1,
+        model='anthropic/claude-haiku-4-5',
+        max_tokens=max_tokens,
+    )
+    codes_r1 = parse_codes(text_r1)
+    print(f"ANALYZE_ROUND1_DONE codes={len(codes_r1)}", flush=True)
+
+    # Round 2: Maverick – find what Haiku missed
+    print("ANALYZE_ROUND2_START", flush=True)
+    round1_summary = json.dumps(
+        [{'code_label': c['code_label'], 'quote': c['quote'][:80]} for c in codes_r1],
+        ensure_ascii=True,
+    )
+    user_content_r2 = (
+        "Runde 1-koder:\n" + round1_summary +
+        "\n\n---\n\nOriginaltekst:\n" + raw_text
+    )
+    if context:
+        user_content_r2 = f"Analysekontekst: {context}\n\n" + user_content_r2
+
+    text_r2 = call_openrouter(
+        system_prompt=SYSTEM_PROMPT_ROUND2,
+        user_content=user_content_r2,
+        model='meta-llama/llama-4-maverick',
+        max_tokens=max_tokens,
+    )
+    codes_r2 = parse_codes(text_r2)
+    print(f"ANALYZE_ROUND2_DONE codes={len(codes_r2)}", flush=True)
+
+    merged = deduplicate_codes(codes_r1, codes_r2)
+    print(f"ANALYZE_MERGED total={len(merged)}", flush=True)
+
+    if not merged:
+        raise LLMParseError('No valid codes after both rounds')
+
+    return merged
 
 
 def insert_codes(access_token, document_id, codes):
     payload = [
         {
             'document_id': document_id,
-            'code_label': code['code_label'],
-            'quote': code['quote'],
-            'rationale': code['rationale'],
+            'code_label': c['code_label'],
+            'quote': c['quote'],
+            'rationale': c['rationale'],
             'source': 'ai',
         }
-        for code in codes
+        for c in codes
     ]
-
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/codes",
         data=json.dumps(payload).encode('utf-8'),
@@ -321,7 +255,6 @@ def insert_codes(access_token, document_id, codes):
             'Prefer': 'return=representation',
         },
     )
-
     with urllib.request.urlopen(req) as res:
         return json.loads(res.read().decode('utf-8'))
 
@@ -330,14 +263,12 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not SUPABASE_URL or not SUPABASE_ANON_KEY:
             return send_json(self, 500, {'error': 'Missing server environment variables'})
-
         if not OPENROUTER_API_KEY:
             return send_json(self, 500, {'error': 'Missing OPENROUTER_API_KEY'})
 
         auth_header = self.headers.get('Authorization', '')
         if not auth_header.startswith('Bearer '):
             return send_json(self, 401, {'error': 'Missing Authorization Bearer token'})
-
         access_token = auth_header.replace('Bearer ', '', 1).strip()
 
         try:
@@ -351,86 +282,56 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             body = json.loads(self.rfile.read(content_length).decode('utf-8'))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except Exception:
             return send_json(self, 400, {'error': 'Invalid JSON body'})
 
         document_id = str(body.get('document_id', '')).strip()
-        model = str(body.get('model', '')).strip() or 'anthropic/claude-haiku-4-5'
         document_type = str(body.get('document_type', '')).strip()
         context = str(body.get('context', '')).strip()
+
         if not document_id:
             return send_json(self, 400, {'error': 'Missing document_id'})
 
         try:
             document = get_document(access_token, document_id)
-        except urllib.error.HTTPError:
+        except Exception:
             return send_json(self, 500, {'error': 'Could not load document'})
 
         if not document:
             return send_json(self, 404, {'error': 'Document not found'})
-
         if document.get('user_id') != user.get('id'):
             return send_json(self, 403, {'error': 'Forbidden'})
 
         raw_text = (document.get('raw_text') or '').strip()
         if not raw_text:
-            return send_json(self, 400, {'error': 'Document has no text to analyze'})
+            return send_json(self, 400, {'error': 'Document has no text'})
 
-        codes = None
-        for attempt in range(2):
+        try:
+            codes = run_iterative_coding(raw_text, document_type, context)
+        except urllib.error.HTTPError as exc:
             try:
-                codes = call_anthropic(raw_text, document_type=document_type, context=context, model=model)
-                break
-            except urllib.error.HTTPError as exc:
-                details = parse_http_error_details(exc)
-                if is_overloaded_error(details):
-                    if attempt == 0:
-                        time.sleep(0.8)
-                        continue
-                    return send_json(
-                        self,
-                        503,
-                        {
-                            'error': 'Analyze temporarily unavailable',
-                            'details': 'Claude is overloaded, please try again in a moment',
-                        },
-                    )
-
-                error_message = None
-                if isinstance(details, dict):
-                    error_message = details.get('error', {}).get('message')
-                return send_json(self, 502, {'error': error_message or 'Anthropic request failed'})
-            except (TimeoutError, urllib.error.URLError):
-                return send_json(self, 502, {'error': 'Anthropic request failed'})
-            except AnthropicParseError as exc:
-                payload = {
-                    'error': 'Anthropic returned non-JSON output',
-                    'raw_text': (exc.raw_text or '')[:4000],
-                    'response_debug': {
-                        'content_block_count': exc.response_debug.get('content_block_count'),
-                        'first_block_type': exc.response_debug.get('first_block_type'),
-                    },
-                }
-                return send_json(self, 502, payload)
-
-        if codes is None:
-            return send_json(self, 502, {'error': 'Anthropic request failed'})
+                details = json.loads(exc.read().decode('utf-8'))
+                msg = details.get('error', {}).get('message', 'LLM request failed')
+            except Exception:
+                msg = 'LLM request failed'
+            status = 503 if exc.code == 529 else 502
+            return send_json(self, status, {'error': msg})
+        except Exception as exc:
+            return send_json(self, 502, {'error': 'Analyze failed: ' + str(exc)})
 
         try:
             rows = insert_codes(access_token, document_id, codes)
-        except urllib.error.HTTPError:
+        except Exception:
             return send_json(self, 500, {'error': 'Could not save codes'})
 
-        response_codes = [
+        return send_json(self, 200, {'codes': [
             {
-                'code_label': row.get('code_label'),
-                'quote': row.get('quote'),
-                'rationale': row.get('rationale'),
+                'code_label': r.get('code_label'),
+                'quote': r.get('quote'),
+                'rationale': r.get('rationale'),
             }
-            for row in rows
-        ]
-
-        return send_json(self, 200, {'codes': response_codes})
+            for r in rows
+        ]})
 
     def do_GET(self):
         return send_json(self, 405, {'error': 'Method not allowed'})

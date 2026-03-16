@@ -663,36 +663,18 @@ function DocumentPage({ accessToken, documentId }) {
               </p>
             ) : null}
 
-            <label>
-              Modell
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-              >
-                <option value="anthropic/claude-sonnet-4-5">
-                  Claude Sonnet 4.5 ✦ Anbefalt – åpen koding
-                </option>
-                <option value="anthropic/claude-haiku-4-5">
-                  Claude Haiku 4.5 ✦ Rask og billig – lukket koding
-                </option>
-                <option value="meta-llama/llama-4-maverick">
-                  Llama 4 Maverick (gratis)
-                </option>
-                <option value="meta-llama/llama-4-scout">
-                  Llama 4 Scout (gratis)
-                </option>
-                <option value="google/gemini-flash-1.5">
-                  Gemini Flash 1.5 (veldig billig)
-                </option>
-                <option value="openai/gpt-4o-mini">
-                  GPT-4o Mini
-                </option>
-              </select>
-            </label>
-
-            <p className="meta">
-              💡 Valgt modell brukes for både åpen og lukket koding i denne økten.
-            </p>
+            <div style={{
+              background: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '0.75rem 1rem',
+              fontSize: '0.875rem',
+              color: 'var(--color-text-muted)',
+            }}>
+              🤖 <strong>Iterativ koding:</strong> Runde 1 med Claude Haiku (bred dekning),
+              runde 2 med Llama 4 Maverick (finner det Haiku gikk glipp av).
+              Resultatene slås sammen automatisk.
+            </div>
           </div>
 
           <button type="button" onClick={handleAnalyze} disabled={analysisLoading}>

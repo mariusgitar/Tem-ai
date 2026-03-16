@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Implemented two-round iterative open coding
+- Round 1: Claude Haiku for broad systematic coverage
+- Round 2: Llama 4 Maverick to find themes Haiku missed
+- Results deduplicated and merged automatically
+- Replaced model selector in open coding with informational note
 - Dynamic max_tokens in recode based on codebook size
 - Dynamic max_tokens in analyze based on text length
 - Fixes "No JSON array in response" error for large codebooks
