@@ -119,6 +119,8 @@ function DocumentPage({ accessToken, documentId }) {
   const [recodeLoading, setRecodeLoading] = useState(false)
   const [recodeError, setRecodeError] = useState('')
   const [wizardStep, setWizardStep] = useState(1)
+  const [analysisContext, setAnalysisContext] = useState('')
+  const [documentType, setDocumentType] = useState('')
 
   const loadCodebook = async (nextDocumentId) => {
     setCodebookLoading(true)
@@ -172,7 +174,11 @@ function DocumentPage({ accessToken, documentId }) {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ document_id: activeDocument.id }),
+        body: JSON.stringify({
+          document_id: activeDocument.id,
+          document_type: documentType,
+          context: analysisContext,
+        }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -431,6 +437,40 @@ function DocumentPage({ accessToken, documentId }) {
         <div className="wizardCard">
           <h2>Åpen koding</h2>
           <p className="meta">AI analyserer teksten og foreslår induktive koder.</p>
+
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            <label>
+              Dokumenttype
+              <select
+                value={documentType}
+                onChange={(e) => setDocumentType(e.target.value)}
+              >
+                <option value="">Velg dokumenttype (valgfritt)</option>
+                <option value="Brukerintervju">Brukerintervju</option>
+                <option value="Fokusgruppeintervju">Fokusgruppeintervju</option>
+                <option value="Spørreundersøkelse (åpne svar)">Spørreundersøkelse (åpne svar)</option>
+                <option value="Ekspertintervju">Ekspertintervju</option>
+                <option value="Observasjonsnotat">Observasjonsnotat</option>
+                <option value="Annet">Annet</option>
+              </select>
+            </label>
+
+            <label>
+              Analysekontekst
+              <textarea
+                value={analysisContext}
+                onChange={(e) => setAnalysisContext(e.target.value)}
+                rows={3}
+                placeholder="Beskriv hva du leter etter, hvem informantene er, eller hvilket tema analysen skal fokusere på. Eksempel: Dette er intervjuer med eldre brukere av kommunale digitale tjenester. Fokuser på bruksbarrierer og frustrasjoner."
+              />
+            </label>
+
+            {(documentType || analysisContext) ? (
+              <p className="meta" style={{ fontStyle: 'italic' }}>
+                💡 Konteksten sendes med til AI-en og påvirker både åpen og lukket koding.
+              </p>
+            ) : null}
+          </div>
 
           <button type="button" onClick={handleAnalyze} disabled={analysisLoading}>
             {analysisLoading ? 'Analyserer…' : 'Analyser dokument'}
