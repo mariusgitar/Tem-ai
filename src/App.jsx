@@ -264,6 +264,7 @@ function DocumentPage({ accessToken, documentId }) {
   const [wizardStep, setWizardStep] = useState(1)
   const [analysisContext, setAnalysisContext] = useState('')
   const [documentType, setDocumentType] = useState('')
+  const [selectedModel, setSelectedModel] = useState('anthropic/claude-haiku-4-5')
 
   const loadCodebook = async (nextDocumentId) => {
     setCodebookLoading(true)
@@ -321,6 +322,7 @@ function DocumentPage({ accessToken, documentId }) {
           document_id: activeDocument.id,
           document_type: documentType,
           context: analysisContext,
+          model: selectedModel,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -344,7 +346,7 @@ function DocumentPage({ accessToken, documentId }) {
       const response = await fetch('/api/recode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ document_id: activeDocument.id }),
+        body: JSON.stringify({ document_id: activeDocument.id, model: selectedModel }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -613,6 +615,37 @@ function DocumentPage({ accessToken, documentId }) {
                 💡 Konteksten sendes med til AI-en og påvirker både åpen og lukket koding.
               </p>
             ) : null}
+
+            <label>
+              Modell
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+              >
+                <option value="anthropic/claude-haiku-4-5">
+                  Claude Haiku 4.5 (rask, billig)
+                </option>
+                <option value="anthropic/claude-sonnet-4-5">
+                  Claude Sonnet 4.5 (bedre kvalitet)
+                </option>
+                <option value="meta-llama/llama-4-scout">
+                  Llama 4 Scout (gratis)
+                </option>
+                <option value="meta-llama/llama-4-maverick">
+                  Llama 4 Maverick (gratis, sterkere)
+                </option>
+                <option value="google/gemini-flash-1.5">
+                  Gemini Flash 1.5 (veldig billig)
+                </option>
+                <option value="openai/gpt-4o-mini">
+                  GPT-4o Mini (billig)
+                </option>
+              </select>
+            </label>
+
+            <p className="meta">
+              💡 Valgt modell brukes for både åpen og lukket koding i denne økten.
+            </p>
           </div>
 
           <button type="button" onClick={handleAnalyze} disabled={analysisLoading}>

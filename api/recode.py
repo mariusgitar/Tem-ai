@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
-ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 
 SYSTEM_PROMPT = (
     "You are a qualitative analyst. "
@@ -78,36 +78,42 @@ def get_approved_codebook(access_token, document_id):
         return json.loads(res.read().decode('utf-8'))
 
 
-def call_anthropic(raw_text, codebook_items):
+def call_anthropic(raw_text, codebook_items, model='anthropic/claude-haiku-4-5'):
     codebook_json = json.dumps(codebook_items, ensure_ascii=True)
     user_content = "Codebook:\n" + codebook_json + "\n\nText:\n" + raw_text
 
     body = json.dumps({
-        'model': 'claude-haiku-4-5',
+        'model': model,
         'max_tokens': 1500,
         'temperature': 0,
-        'system': SYSTEM_PROMPT,
-        'messages': [{'role': 'user', 'content': user_content}],
+        'messages': [
+            {'role': 'system', 'content': SYSTEM_PROMPT},
+            {'role': 'user', 'content': user_content},
+        ],
     }).encode('utf-8')
 
     req = urllib.request.Request(
-        'https://api.anthropic.com/v1/messages',
+        'https://openrouter.ai/api/v1/chat/completions',
         data=body,
         method='POST',
         headers={
             'Content-Type': 'application/json',
-            'x-api-key': ANTHROPIC_API_KEY,
-            'anthropic-version': '2023-06-01',
+            'Authorization': f'Bearer {OPENROUTER_API_KEY}',
+            'HTTP-Referer': 'https://tem-ai.vercel.app',
+            'X-Title': 'TemAI',
         },
     )
 
     with urllib.request.urlopen(req, timeout=45) as res:
         data = json.loads(res.read().decode('utf-8'))
 
-    blocks = data.get('content') or []
-    text = ''.join(b.get('text', '') for b in blocks if b.get('type') == 'text')
+    choices = data.get('choices') or []
+    if not choices:
+        raise ParseError('Empty response from model')
+
+    text = choices[0].get('message', {}).get('content', '') or ''
     if not text.strip():
-        raise ParseError('Empty response from Anthropic')
+        raise ParseError('Empty text from model')
 
     start = text.find('[')
     end = text.rfind(']')
@@ -168,8 +174,8 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not SUPABASE_URL or not SUPABASE_ANON_KEY:
             return send_json(self, 500, {'error': 'Missing server environment variables'})
-        if not ANTHROPIC_API_KEY:
-            return send_json(self, 500, {'error': 'Missing ANTHROPIC_API_KEY'})
+        if not OPENROUTER_API_KEY:
+            return send_json(self, 500, {'error': 'Missing OPENROUTER_API_KEY'})
 
         auth_header = self.headers.get('Authorization', '')
         if not auth_header.startswith('Bearer '):
@@ -191,6 +197,7 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 400, {'error': 'Invalid JSON body'})
 
         document_id = str(body.get('document_id', '')).strip()
+        model = str(body.get('model', '')).strip() or 'anthropic/claude-haiku-4-5'
         if not document_id:
             return send_json(self, 400, {'error': 'Missing document_id'})
 
@@ -217,7 +224,7 @@ class handler(BaseHTTPRequestHandler):
             return send_json(self, 400, {'error': 'No approved codes in codebook'})
 
         try:
-            segments = call_anthropic(raw_text, codebook_items)
+            segments = call_anthropic(raw_text, codebook_items, model=model)
         except urllib.error.HTTPError as exc:
             try:
                 details = json.loads(exc.read().decode('utf-8'))
