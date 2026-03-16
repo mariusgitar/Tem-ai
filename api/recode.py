@@ -10,11 +10,17 @@ SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 
 SYSTEM_PROMPT = (
-    "You are a qualitative analyst. "
-    "You will receive a codebook with approved codes and a text. "
-    "Go through the text and identify segments that match the codes. "
-    "Return only a valid JSON array with no markdown or explanation. "
-    "Each item must have: code_name, quote, rationale."
+    "Du er en kvalitativ forsker som utforer systematisk lukket koding. "
+    "Du far en kodebok med godkjente koder og en tekst. "
+    "Identifiser alle tekstsegmenter som matcher kodene. "
+    "Regler: "
+    "Sitater skal vaere lange nok til a bevare kontekst (minst en hel setning). "
+    "En kode kan matche flere ulike sitater - registrer alle relevante funn. "
+    "Ikke tving en match hvis teksten ikke stotter koden. "
+    "Rationale skal forklare hvorfor akkurat dette segmentet matcher koden. "
+    "Returner kun en gyldig JSON-array. "
+    "Ingen markdown. Ingen forklaring. "
+    "Hvert element: code_name, quote, rationale."
 )
 
 

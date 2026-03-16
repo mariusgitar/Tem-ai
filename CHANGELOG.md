@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Improved open coding prompt with analytical vs descriptive guidance
+- Improved closed coding prompt with context-preservation rules
+- Added dynamic code count based on text length (word count)
+- Updated default model to Claude Sonnet 4.5 for open coding
+- Updated model selector labels with recommendations
 - Switched LLM provider from Anthropic direct to OpenRouter
 - Added model selector dropdown in open coding step
 - Both analyze and recode endpoints now accept a model parameter

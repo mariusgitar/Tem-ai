@@ -12,18 +12,25 @@ SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 DEBUG_RETURN_RAW_ANTHROPIC = False
 
-SYSTEM_PROMPT = """Du er en erfaren kvalitativ analytiker.
-Les intervjuteksten og foreslå 4–8 induktive koder.
-Hver kode skal ha:
-- code_label: kort og presis kode
-- quote: kort sitat hentet fra teksten
-- rationale: kort begrunnelse
+SYSTEM_PROMPT = """Du er en erfaren kvalitativ forsker med bakgrunn i tematisk analyse.
+
+Les teksten og identifiser induktive koder.
+
+Regler:
+- Kodeetiketter skal være ANALYTISKE og KONSEPTUELLE – ikke deskriptive omskrivninger av det som sies. Løft meningen, ikke bare teksten.
+- Velg sitater som er lange nok til å gi kontekst (minst én hel setning).
+- Samme kode kan brukes flere ganger med ulike sitater hvis teksten støtter det.
+- Rationale skal forklare den analytiske tolkningen, ikke bare beskrive sitatet.
+- Slå sammen koder som dekker samme konsept – unngå overlapp og redundans.
+- Prioriter kvalitet over kvantitet.
+
+Eksempel på DÅRLIG kode: "Vanskelig å finne informasjon"
+Eksempel på GOD kode: "Fragmentert tjenestelandskap som navigasjonsbarriere"
 
 Returner kun en gyldig JSON-array.
-Ingen markdown.
-Ingen prose.
-Ingen kodeblokker.
-Ingen tekst før eller etter JSON."""
+Ingen markdown. Ingen prose. Ingen kodeblokker.
+Ingen tekst før eller etter JSON.
+Hvert element: code_label, quote, rationale."""
 
 
 class AnthropicParseError(ValueError):
@@ -129,16 +136,23 @@ def get_document(access_token, document_id):
 
 
 def call_anthropic(raw_text, document_type='', context='', model='anthropic/claude-haiku-4-5'):
+    word_count = len(raw_text.split())
+    min_codes = max(3, min(8, word_count // 150))
+    max_codes = max(5, min(20, word_count // 80))
+
+    dynamic_instruction = (
+        f"Foreslå mellom {min_codes} og {max_codes} koder basert på "
+        f"tekstens lengde og tematiske rikdom ({word_count} ord)."
+    )
+
     context_parts = []
+    context_parts.append(dynamic_instruction)
     if document_type:
         context_parts.append(f"Dokumenttype: {document_type}")
     if context:
         context_parts.append(f"Analysekontekst: {context}")
 
-    if context_parts:
-        user_content = "\n".join(context_parts) + "\n\n---\n\n" + raw_text
-    else:
-        user_content = raw_text
+    user_content = "\n".join(context_parts) + "\n\n---\n\n" + raw_text
 
     body = json.dumps(
         {
