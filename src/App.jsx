@@ -258,15 +258,30 @@ function DocumentPage({ accessToken, documentId }) {
       body: JSON.stringify({ id: itemId, ...updates }),
     })
     const data = await response.json().catch(() => ({}))
-    if (!response.ok) { setCodebookError(data.error || 'Kunne ikke oppdatere'); setSavingCodebookId(''); return }
+    if (!response.ok) {
+      setCodebookError(data.error || 'Kunne ikke oppdatere')
+      setSavingCodebookId('')
+      return false
+    }
     if (data.item) setCodebookItems((prev) => prev.map((i) => i.id === itemId ? data.item : i))
     setSavingCodebookId('')
+    return true
   }
 
-  const handleToggleCodebookApproval = async (item) => {
+  const handleToggleCodebookApproval = async (item, checkedValue) => {
     if (!item?.id || savingCodebookId === item.id) return
-    const nextStatus = item.status === 'approved' ? 'draft' : 'approved'
-    await handleSaveCodebookItem(item.id, { status: nextStatus })
+    const previousStatus = item.status === 'approved' ? 'approved' : 'draft'
+    const nextStatus = typeof checkedValue === 'boolean'
+      ? (checkedValue ? 'approved' : 'draft')
+      : previousStatus === 'approved'
+        ? 'draft'
+        : 'approved'
+
+    setCodebookItems((prev) => prev.map((i) => i.id === item.id ? { ...i, status: nextStatus } : i))
+    const saved = await handleSaveCodebookItem(item.id, { status: nextStatus })
+    if (!saved) {
+      setCodebookItems((prev) => prev.map((i) => i.id === item.id ? { ...i, status: previousStatus } : i))
+    }
   }
 
 
@@ -527,13 +542,8 @@ function DocumentPage({ accessToken, documentId }) {
                         <input
                           type="checkbox"
                           checked={item.status === 'approved'}
-                          onChange={(e) =>
-                            handleCodebookFieldChange(
-                              item.id,
-                              'status',
-                              e.target.checked ? 'approved' : 'draft'
-                            )
-                          }
+                          onChange={(e) => handleToggleCodebookApproval(item, e.target.checked)}
+                          disabled={savingCodebookId === item.id}
                         />
                         <span className="toggleSlider" />
                       </span>
