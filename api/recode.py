@@ -87,10 +87,11 @@ def get_approved_codebook(access_token, document_id):
 def call_anthropic(raw_text, codebook_items, model='anthropic/claude-haiku-4-5'):
     codebook_json = json.dumps(codebook_items, ensure_ascii=True)
     user_content = "Codebook:\n" + codebook_json + "\n\nText:\n" + raw_text
+    max_tokens = min(4000, 1500 + len(codebook_items) * 150)
 
     body = json.dumps({
         'model': model,
-        'max_tokens': 1500,
+        'max_tokens': max_tokens,
         'temperature': 0,
         'messages': [
             {'role': 'system', 'content': SYSTEM_PROMPT},

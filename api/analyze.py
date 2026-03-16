@@ -137,6 +137,7 @@ def get_document(access_token, document_id):
 
 def call_anthropic(raw_text, document_type='', context='', model='anthropic/claude-haiku-4-5'):
     word_count = len(raw_text.split())
+    max_tokens = min(4000, max(1500, word_count // 2))
     min_codes = max(3, min(8, word_count // 150))
     max_codes = max(5, min(20, word_count // 80))
 
@@ -157,7 +158,7 @@ def call_anthropic(raw_text, document_type='', context='', model='anthropic/clau
     body = json.dumps(
         {
             'model': model,
-            'max_tokens': 1500,
+            'max_tokens': max_tokens,
             'temperature': 0,
             'messages': [
                 {'role': 'system', 'content': SYSTEM_PROMPT},

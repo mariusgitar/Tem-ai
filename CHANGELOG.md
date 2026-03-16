@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Dynamic max_tokens in recode based on codebook size
+- Dynamic max_tokens in analyze based on text length
+- Fixes "No JSON array in response" error for large codebooks
 - Improved open coding prompt with analytical vs descriptive guidance
 - Improved closed coding prompt with context-preservation rules
 - Added dynamic code count based on text length (word count)
