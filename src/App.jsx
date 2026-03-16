@@ -397,6 +397,42 @@ function DocumentPage({ accessToken, documentId }) {
     setSavingCodebookId('')
   }
 
+  const handleAddToCodebook = async (code) => {
+    if (!activeDocument?.id || !code?.code_label || codebookCodeNames.has(code.code_label)) return
+    const saveKey = `${code.code_label}-${code.quote}`
+    setSavingCodebookId(saveKey)
+    setCodebookError('')
+
+    const response = await fetch('/api/codebook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        document_id: activeDocument.id,
+        code_name: code.code_label,
+        definition: code.rationale || '',
+        status: 'draft',
+        source: 'ai_from_codes',
+      }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      setCodebookError(data.error || 'Kunne ikke lagre')
+      setSavingCodebookId('')
+      return
+    }
+    if (data.item) setCodebookItems((prev) => [...prev, data.item])
+    setSavingCodebookId('')
+  }
+
+  const handleAddAllToCodebook = async () => {
+    const codesToAdd = codes.filter(
+      (code) => !codebookCodeNames.has(code.code_label)
+    )
+    for (const code of codesToAdd) {
+      await handleAddToCodebook(code)
+    }
+  }
+
   const handleCodebookFieldChange = (itemId, field, value) => {
     setCodebookItems((prev) => prev.map((item) => item.id === itemId ? { ...item, [field]: value } : item))
   }
@@ -432,6 +468,17 @@ function DocumentPage({ accessToken, documentId }) {
     const saved = await handleSaveCodebookItem(item.id, { status: nextStatus })
     if (!saved) {
       setCodebookItems((prev) => prev.map((i) => i.id === item.id ? { ...i, status: previousStatus } : i))
+    }
+  }
+
+  const handleApproveAll = async () => {
+    const drafts = codebookItems.filter((item) => item.status !== 'approved')
+    for (const item of drafts) {
+      handleCodebookFieldChange(item.id, 'status', 'approved')
+      const saved = await handleSaveCodebookItem(item.id, { status: 'approved' })
+      if (!saved) {
+        handleCodebookFieldChange(item.id, 'status', item.status === 'approved' ? 'approved' : 'draft')
+      }
     }
   }
 
@@ -656,6 +703,19 @@ function DocumentPage({ accessToken, documentId }) {
 
           {codes.length > 0 ? (
             <section className="codesList" aria-label="Foreslåtte koder">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <p className="meta">{codes.length} koder foreslått</p>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleAddAllToCodebook}
+                  disabled={codes.every((code) => codebookCodeNames.has(code.code_label))}
+                >
+                  {codes.every((code) => codebookCodeNames.has(code.code_label))
+                    ? 'Alle lagt til ✓'
+                    : 'Legg alle til i kodebok'}
+                </button>
+              </div>
               {codes.map((code, index) => {
                 const saveKey = `${code.code_label}-${code.quote}`
                 return (
@@ -707,7 +767,20 @@ function DocumentPage({ accessToken, documentId }) {
               <h2>Kodebok</h2>
               <p className="meta">Rediger og godkjenn koder før lukket koding.</p>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleApproveAll}
+                disabled={
+                  codebookItems.length === 0 ||
+                  codebookItems.every((item) => item.status === 'approved')
+                }
+              >
+                {codebookItems.every((item) => item.status === 'approved')
+                  ? 'Alle godkjent ✓'
+                  : 'Godkjenn alle'}
+              </button>
               <button type="button" className="btn-secondary"
                 onClick={exportCodebookCSV} disabled={codebookItems.length === 0}>
                 Eksporter CSV
