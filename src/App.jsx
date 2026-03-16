@@ -43,10 +43,97 @@ function UploadPage({ accessToken, onOpenUpload }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [csvColumns, setCsvColumns] = useState(null)
+  const [csvRows, setCsvRows] = useState(null)
+  const [selectedColumn, setSelectedColumn] = useState('')
+
+  const detectSeparator = (text) => {
+    const commas = (text.slice(0, 2000).match(/,/g) || []).length
+    const semicolons = (text.slice(0, 2000).match(/;/g) || []).length
+    return semicolons > commas ? ';' : ','
+  }
+
+  const parseCSV = (text) => {
+    const separator = detectSeparator(text)
+    const lines = text.trim().split('\n').filter(Boolean)
+    if (lines.length < 2) return null
+
+    const parseRow = (line) => {
+      const cols = []
+      let current = ''
+      let inQuotes = false
+      for (const char of line) {
+        if (char === '"') { inQuotes = !inQuotes }
+        else if (char === separator && !inQuotes) { cols.push(current.trim()); current = '' }
+        else { current += char }
+      }
+      cols.push(current.trim())
+      return cols
+    }
+
+    const headers = parseRow(lines[0])
+    const rows = lines.slice(1).map(parseRow)
+    return { headers, rows }
+  }
+
+  const handleFileChange = async (event) => {
+    const selected = event.target.files?.[0] || null
+    setFile(selected)
+    setCsvColumns(null)
+    setCsvRows(null)
+    setSelectedColumn('')
+    setError('')
+
+    if (selected && selected.name.endsWith('.csv')) {
+      const text = await selected.text()
+      const parsed = parseCSV(text)
+      if (!parsed) {
+        setError('Kunne ikke lese CSV-filen. Sjekk at den har en header-rad.')
+        return
+      }
+      setCsvColumns(parsed.headers)
+      setCsvRows(parsed.rows)
+    }
+  }
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-    if (!file) { setError('Velg en .txt-fil før opplasting.'); return }
+    if (!file) { setError('Velg en fil før opplasting.'); return }
+
+    if (file.name.endsWith('.csv')) {
+      if (!selectedColumn) { setError('Velg hvilken kolonne som skal analyseres.'); return }
+
+      const colIndex = csvColumns.indexOf(selectedColumn)
+      const combined = csvRows
+        .map((row, i) => {
+          const val = (row[colIndex] || '').trim()
+          return val ? `Svar ${i + 1}: ${val}` : null
+        })
+        .filter(Boolean)
+        .join('\n\n')
+
+      if (!combined) { setError('Kolonnen inneholder ingen tekst.'); return }
+
+      setLoading(true); setError(''); setSuccess('')
+
+      const blob = new Blob([combined], { type: 'text/plain' })
+      const filename = `${file.name.replace('.csv', '')}_${selectedColumn}.txt`
+      const formData = new FormData()
+      formData.append('file', blob, filename)
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: formData,
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) { setError(data.error || 'Opplasting feilet.'); setLoading(false); return }
+      setSuccess('Dokument lastet opp')
+      setLoading(false)
+      window.setTimeout(() => onOpenUpload(data.id), 500)
+      return
+    }
+
     setLoading(true); setError(''); setSuccess('')
     const formData = new FormData()
     formData.append('file', file)
@@ -64,19 +151,75 @@ function UploadPage({ accessToken, onOpenUpload }) {
     window.setTimeout(() => onOpenUpload(data.id), 500)
   }
 
+  const isCSV = file && file.name.endsWith('.csv')
+
   return (
     <main className="content">
       <h1>Last opp dokument</h1>
-      <form className="card" onSubmit={handleSubmit}>
+      <form className="card" style={{ maxWidth: '560px' }} onSubmit={handleSubmit}>
         <label>
-          Tekstfil (.txt)
-          <input type="file" accept=".txt,text/plain"
-            onChange={(e) => setFile(e.target.files?.[0] || null)} required />
+          Tekstfil (.txt eller .csv)
+          <input
+            type="file"
+            accept=".txt,.csv,text/plain,text/csv"
+            onChange={handleFileChange}
+            required
+          />
         </label>
+
+        {isCSV && csvColumns && (
+          <>
+            <div className="divider" />
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                CSV-fil oppdaget – velg kolonne å analysere
+              </p>
+              <p className="meta">
+                {csvRows?.length} rader funnet. Velg hvilken kolonne som inneholder tekstsvarene.
+              </p>
+              <label>
+                Kolonne
+                <select
+                  value={selectedColumn}
+                  onChange={(e) => setSelectedColumn(e.target.value)}
+                  required
+                >
+                  <option value="">Velg kolonne…</option>
+                  {csvColumns.map((col) => (
+                    <option key={col} value={col}>{col}</option>
+                  ))}
+                </select>
+              </label>
+              {selectedColumn && csvRows && (
+                <div style={{
+                  background: 'var(--color-bg)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '0.75rem',
+                  fontSize: '0.825rem',
+                  color: 'var(--color-text-muted)',
+                }}>
+                  <strong>Forhåndsvisning (første 3 svar):</strong>
+                  {csvRows.slice(0, 3).map((row, i) => {
+                    const val = (row[csvColumns.indexOf(selectedColumn)] || '').trim()
+                    return val ? <p key={i} style={{ margin: '0.25rem 0' }}>Svar {i + 1}: {val}</p> : null
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
         {error ? <p className="error">{error}</p> : null}
         {success ? <p className="success">{success}</p> : null}
         <button type="submit" disabled={loading || !!success}>
-          {loading ? 'Laster opp…' : success ? 'Åpner dokument…' : 'Last opp'}
+          {loading
+            ? 'Laster opp…'
+            : success
+            ? 'Åpner dokument…'
+            : isCSV && selectedColumn
+            ? `Importer "${selectedColumn}"`
+            : 'Last opp'}
         </button>
       </form>
     </main>
