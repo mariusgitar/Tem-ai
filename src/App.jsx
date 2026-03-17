@@ -38,7 +38,7 @@ function LoginPage() {
   )
 }
 
-function UploadPage({ accessToken, onOpenUpload }) {
+function UploadPage({ accessToken, projectId, onOpenUpload, onBack }) {
   const [file, setFile] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -120,6 +120,9 @@ function UploadPage({ accessToken, onOpenUpload }) {
       const filename = `${file.name.replace('.csv', '')}_${selectedColumn}.txt`
       const formData = new FormData()
       formData.append('file', blob, filename)
+      if (projectId) {
+        formData.append('project_id', projectId)
+      }
 
       const response = await fetch('/api/upload', {
         method: 'POST',
@@ -137,6 +140,9 @@ function UploadPage({ accessToken, onOpenUpload }) {
     setLoading(true); setError(''); setSuccess('')
     const formData = new FormData()
     formData.append('file', file)
+    if (projectId) {
+      formData.append('project_id', projectId)
+    }
     const response = await fetch('/api/upload', {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -155,6 +161,10 @@ function UploadPage({ accessToken, onOpenUpload }) {
 
   return (
     <main className="content">
+      <button type="button" className="btn-secondary"
+        onClick={onBack} style={{ marginBottom: '1rem' }}>
+        ← Tilbake til prosjekt
+      </button>
       <h1>Last opp dokument</h1>
       <form className="card" style={{ maxWidth: '560px' }} onSubmit={handleSubmit}>
         <label>
@@ -245,7 +255,7 @@ function ToggleSwitchButton({ checked, labelOn, labelOff, onClick, disabled, loa
   )
 }
 
-function DocumentPage({ accessToken, documentId }) {
+function DocumentPage({ accessToken, documentId, onBack }) {
   const [activeDocument, setActiveDocument] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -264,6 +274,8 @@ function DocumentPage({ accessToken, documentId }) {
   const [wizardStep, setWizardStep] = useState(1)
   const [analysisContext, setAnalysisContext] = useState('')
   const [documentType, setDocumentType] = useState('')
+  const [projectId, setProjectId] = useState(null)
+  const [analyzeOverlap, setAnalyzeOverlap] = useState(null)
   const [selectedModel, setSelectedModel] = useState('anthropic/claude-haiku-4-5')
 
   const loadCodebook = async (nextDocumentId) => {
@@ -287,7 +299,11 @@ function DocumentPage({ accessToken, documentId }) {
     let isMounted = true
     const loadDocument = async () => {
       setLoading(true); setError('')
-      const response = await fetch(`/api/document?id=${encodeURIComponent(documentId)}`, {
+      const query = new URLSearchParams({
+        id: documentId,
+        select: 'id,user_id,filename,raw_text,created_at,project_id',
+      })
+      const response = await fetch(`/api/document?${query.toString()}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
       const data = await response.json().catch(() => ({}))
@@ -298,8 +314,10 @@ function DocumentPage({ accessToken, documentId }) {
         return
       }
       setActiveDocument(data)
+      if (data.project_id) setProjectId(data.project_id)
       setCodes([])
       setSegments([])
+      setAnalyzeOverlap(null)
       setAnalysisError('')
       setAnalysisLoading(false)
       setRecodeError('')
@@ -320,6 +338,7 @@ function DocumentPage({ accessToken, documentId }) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
           document_id: activeDocument.id,
+          project_id: projectId,
           document_type: documentType,
           context: analysisContext,
           model: selectedModel,
@@ -332,6 +351,11 @@ function DocumentPage({ accessToken, documentId }) {
         return
       }
       setCodes(Array.isArray(data.codes) ? data.codes : [])
+      setAnalyzeOverlap({
+        new_count: data.new_count || 0,
+        overlap_count: data.overlap_count || 0,
+        total_existing: data.total_existing || 0,
+      })
       setAnalysisLoading(false)
     } catch (_err) {
       setAnalysisError('Kunne ikke kontakte serveren')
@@ -606,6 +630,11 @@ function DocumentPage({ accessToken, documentId }) {
   return (
     <main className="wizard">
       <div>
+        <button type="button" className="btn-secondary"
+          onClick={() => onBack && onBack(projectId)}
+          style={{ marginBottom: '0.5rem' }}>
+          ← Tilbake
+        </button>
         <h1 style={{ marginBottom: '0.25rem' }}>{activeDocument.filename}</h1>
         <p className="meta">Lastet opp: {new Date(activeDocument.created_at).toLocaleString('nb-NO')}</p>
       </div>
@@ -680,6 +709,22 @@ function DocumentPage({ accessToken, documentId }) {
           <button type="button" onClick={handleAnalyze} disabled={analysisLoading}>
             {analysisLoading ? 'Analyserer…' : 'Analyser dokument'}
           </button>
+
+          {analyzeOverlap && analyzeOverlap.total_existing > 0 ? (
+            <div style={{
+              background: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '0.75rem 1rem',
+              fontSize: '0.875rem',
+              color: 'var(--color-text-muted)',
+            }}>
+              📊 <strong>{analyzeOverlap.new_count} nye koder</strong> funnet.
+              {analyzeOverlap.overlap_count > 0
+                ? ` ${analyzeOverlap.overlap_count} overlappet med eksisterende kodebok og ble ikke lagt til.`
+                : ' Ingen overlapp med eksisterende kodebok.'}
+            </div>
+          ) : null}
 
           {analysisError ? <p className="error">{analysisError}</p> : null}
 
@@ -959,54 +1004,257 @@ function WizardSteps({ currentStep, maxReachedStep }) {
   )
 }
 
-function DocumentsPage({ accessToken, onOpenDocument }) {
-  const [documents, setDocuments] = useState([])
+function ProjectsPage({ accessToken, onOpenProject, onCreateProject }) {
+  const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let isMounted = true
-    const loadDocuments = async () => {
-      setLoading(true); setError('')
-      const response = await fetch('/api/documents', {
+    const load = async () => {
+      setLoading(true)
+      const response = await fetch('/api/projects', {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
       const data = await response.json().catch(() => ({}))
       if (!isMounted) return
-      if (!response.ok) {
-        setError(data.error || 'Kunne ikke hente dokumenter')
-        setDocuments([])
-        setLoading(false)
-        return
-      }
-      setDocuments(Array.isArray(data.documents) ? data.documents : [])
+      if (!response.ok) { setError(data.error || 'Kunne ikke hente prosjekter'); setLoading(false); return }
+      setProjects(Array.isArray(data.projects) ? data.projects : [])
       setLoading(false)
     }
-    loadDocuments()
+    load()
     return () => { isMounted = false }
   }, [accessToken])
 
-  if (loading) return <main className="content">Laster dokumenter…</main>
+  if (loading) return <main className="content">Laster prosjekter…</main>
   if (error) return <main className="content"><p className="error">{error}</p></main>
-  if (documents.length === 0) return (
-    <main className="content">
-      <p>Ingen dokumenter ennå.</p>
-      <p><a href="/upload">Last opp et dokument</a></p>
-    </main>
-  )
 
   return (
     <main className="content">
-      <h1>Dokumenter</h1>
-      <section className="codesList" aria-label="Dokumentliste">
-        {documents.map((doc) => (
-          <article className="codeCard" key={doc.id}>
-            <h2>{doc.filename}</h2>
-            <p className="meta">Lastet opp: {new Date(doc.created_at).toLocaleString('nb-NO')}</p>
-            <button type="button" onClick={() => onOpenDocument(doc.id)}>Åpne</button>
-          </article>
-        ))}
-      </section>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <h1>Prosjekter</h1>
+        <button type="button" onClick={onCreateProject}>
+          + Nytt prosjekt
+        </button>
+      </div>
+
+      {projects.length === 0 ? (
+        <div className="wizardCard" style={{ textAlign: 'center', padding: '3rem' }}>
+          <p style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>Ingen prosjekter ennå.</p>
+          <p className="meta" style={{ marginBottom: '1.5rem' }}>
+            Opprett et prosjekt for å begynne å analysere tekst.
+          </p>
+          <button type="button" onClick={onCreateProject}>
+            Opprett ditt første prosjekt
+          </button>
+        </div>
+      ) : (
+        <section className="codesList">
+          {projects.map((project) => (
+            <article className="codeCard" key={project.id}
+              style={{ cursor: 'pointer' }}
+              onClick={() => onOpenProject(project.id)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <h2>{project.name}</h2>
+                  {project.document_type ? (
+                    <span style={{
+                      fontSize: '0.75rem',
+                      background: 'var(--color-bg)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: '99px',
+                      padding: '0.15rem 0.6rem',
+                      color: 'var(--color-text-muted)',
+                    }}>{project.document_type}</span>
+                  ) : null}
+                  {project.description ? (
+                    <p className="meta" style={{ marginTop: '0.4rem' }}>{project.description}</p>
+                  ) : null}
+                </div>
+                <p className="meta">{new Date(project.created_at).toLocaleDateString('nb-NO')}</p>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+    </main>
+  )
+}
+
+function CreateProjectPage({ accessToken, onCreated, onBack }) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [documentType, setDocumentType] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    if (!name.trim()) { setError('Prosjektnavn er påkrevd.'); return }
+    setLoading(true); setError('')
+
+    const response = await fetch('/api/projects', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ name, description, document_type: documentType }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) { setError(data.error || 'Kunne ikke opprette prosjekt'); setLoading(false); return }
+    onCreated(data.project.id)
+  }
+
+  return (
+    <main className="content">
+      <button type="button" className="btn-secondary"
+        onClick={onBack} style={{ marginBottom: '1rem' }}>
+        ← Tilbake
+      </button>
+      <h1 style={{ marginBottom: '1.5rem' }}>Nytt prosjekt</h1>
+      <form className="wizardCard" onSubmit={handleSubmit}>
+        <label>
+          Prosjektnavn *
+          <input type="text" value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="F.eks. Brukerundersøkelse 2026"
+            required />
+        </label>
+        <label>
+          Beskrivelse
+          <textarea value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            placeholder="Kort beskrivelse av prosjektet og formålet med analysen" />
+        </label>
+        <label>
+          Dokumenttype
+          <select value={documentType}
+            onChange={(e) => setDocumentType(e.target.value)}>
+            <option value="">Velg dokumenttype (valgfritt)</option>
+            <option value="Brukerintervju">Brukerintervju</option>
+            <option value="Fokusgruppeintervju">Fokusgruppeintervju</option>
+            <option value="Spørreundersøkelse (åpne svar)">Spørreundersøkelse (åpne svar)</option>
+            <option value="Ekspertintervju">Ekspertintervju</option>
+            <option value="Observasjonsnotat">Observasjonsnotat</option>
+            <option value="Annet">Annet</option>
+          </select>
+        </label>
+        {error ? <p className="error">{error}</p> : null}
+        <div className="wizardNav">
+          <button type="button" className="btn-secondary" onClick={onBack}>
+            Avbryt
+          </button>
+          <button type="submit" disabled={loading}>
+            {loading ? 'Oppretter…' : 'Opprett prosjekt →'}
+          </button>
+        </div>
+      </form>
+    </main>
+  )
+}
+
+function ProjectPage({ accessToken, projectId, onOpenDocument, onUpload, onBack }) {
+  const [project, setProject] = useState(null)
+  const [documents, setDocuments] = useState([])
+  const [codebook, setCodebook] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let isMounted = true
+    const load = async () => {
+      setLoading(true)
+      const response = await fetch(`/api/projects?id=${encodeURIComponent(projectId)}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!isMounted) return
+      if (!response.ok) { setError(data.error || 'Kunne ikke hente prosjekt'); setLoading(false); return }
+      setProject(data.project)
+      setDocuments(Array.isArray(data.documents) ? data.documents : [])
+      setCodebook(Array.isArray(data.codebook) ? data.codebook : [])
+      setLoading(false)
+    }
+    load()
+    return () => { isMounted = false }
+  }, [accessToken, projectId])
+
+  if (loading) return <main className="content">Laster prosjekt…</main>
+  if (error) return <main className="content"><p className="error">{error}</p></main>
+
+  const approvedCount = codebook.filter((c) => c.status === 'approved').length
+
+  return (
+    <main className="content">
+      <button type="button" className="btn-secondary"
+        onClick={onBack} style={{ marginBottom: '1rem' }}>
+        ← Prosjekter
+      </button>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+        <div>
+          <h1>{project.name}</h1>
+          {project.document_type ? (
+            <span style={{
+              fontSize: '0.75rem',
+              background: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '99px',
+              padding: '0.15rem 0.6rem',
+              color: 'var(--color-text-muted)',
+            }}>{project.document_type}</span>
+          ) : null}
+          {project.description ? (
+            <p className="meta" style={{ marginTop: '0.4rem' }}>{project.description}</p>
+          ) : null}
+        </div>
+        <button type="button" onClick={onUpload}>
+          + Last opp dokument
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+        <div className="wizardCard" style={{ padding: '1rem' }}>
+          <p className="meta">Dokumenter</p>
+          <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>{documents.length}</p>
+        </div>
+        <div className="wizardCard" style={{ padding: '1rem' }}>
+          <p className="meta">Kodebok</p>
+          <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>
+            {approvedCount} <span style={{ fontSize: '0.9rem', fontWeight: 400 }}>godkjente</span>
+          </p>
+        </div>
+      </div>
+
+      <h2 style={{ marginBottom: '0.75rem' }}>Dokumenter</h2>
+      {documents.length === 0 ? (
+        <div className="wizardCard" style={{ textAlign: 'center', padding: '2rem' }}>
+          <p className="meta" style={{ marginBottom: '1rem' }}>
+            Ingen dokumenter ennå. Last opp det første for å starte analysen.
+          </p>
+          <button type="button" onClick={onUpload}>
+            Last opp første dokument
+          </button>
+        </div>
+      ) : (
+        <section className="codesList">
+          {documents.map((doc) => (
+            <article className="codeCard" key={doc.id}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h2>{doc.filename}</h2>
+                  <p className="meta">{new Date(doc.created_at).toLocaleString('nb-NO')}</p>
+                </div>
+                <button type="button" onClick={() => onOpenDocument(doc.id)}>
+                  Åpne
+                </button>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
     </main>
   )
 }
@@ -1026,25 +1274,57 @@ function AppShell({ session, onLogout }) {
   }, [])
 
   const documentMatch = path.match(/^\/document\/([^/]+)$/)
+  const projectMatch = path.match(/^\/projects\/([^/]+)$/)
+  const projectUploadMatch = path.match(/^\/projects\/([^/]+)\/upload$/)
 
   return (
     <div className="page">
       <header className="topnav">
         <nav>
-          <button className="navlink" onClick={() => goToPath('/')}>Dokumenter</button>
-          <button className="navlink" onClick={() => goToPath('/upload')}>Last opp</button>
+          <button className="navlink" onClick={() => goToPath('/')}>
+            Prosjekter
+          </button>
         </nav>
         <div className="userActions">
           <span>{session.user.email}</span>
           <button onClick={onLogout}>Logg ut</button>
         </div>
       </header>
-      {path === '/upload' ? (
-        <UploadPage accessToken={session.access_token} onOpenUpload={(id) => goToPath(`/document/${id}`)} />
+      {path === '/projects/new' ? (
+        <CreateProjectPage
+          accessToken={session.access_token}
+          onCreated={(id) => goToPath(`/projects/${id}`)}
+          onBack={() => goToPath('/')}
+        />
+      ) : projectUploadMatch ? (
+        <UploadPage
+          accessToken={session.access_token}
+          projectId={projectUploadMatch[1]}
+          onOpenUpload={(id) => goToPath(`/document/${id}`)}
+          onBack={() => goToPath(`/projects/${projectUploadMatch[1]}`)}
+        />
+      ) : projectMatch ? (
+        <ProjectPage
+          accessToken={session.access_token}
+          projectId={projectMatch[1]}
+          onOpenDocument={(id) => goToPath(`/document/${id}`)}
+          onUpload={() => goToPath(`/projects/${projectMatch[1]}/upload`)}
+          onBack={() => goToPath('/')}
+        />
       ) : documentMatch ? (
-        <DocumentPage accessToken={session.access_token} documentId={documentMatch[1]} />
+        <DocumentPage
+          accessToken={session.access_token}
+          documentId={documentMatch[1]}
+          onBack={(nextProjectId) => nextProjectId
+            ? goToPath(`/projects/${nextProjectId}`)
+            : goToPath('/')}
+        />
       ) : (
-        <DocumentsPage accessToken={session.access_token} onOpenDocument={(id) => goToPath(`/document/${id}`)} />
+        <ProjectsPage
+          accessToken={session.access_token}
+          onOpenProject={(id) => goToPath(`/projects/${id}`)}
+          onCreateProject={() => goToPath('/projects/new')}
+        />
       )}
     </div>
   )
