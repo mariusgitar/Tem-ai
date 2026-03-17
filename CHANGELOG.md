@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Fixed iOS browser caching issue on projects API call
+- Added no-cache headers to projects endpoint
 - Added ProjectsPage with list of projects
 - Added CreateProjectPage with name, description, document type
 - Added ProjectPage with document list and codebook summary
