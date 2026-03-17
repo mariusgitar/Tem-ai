@@ -1010,6 +1010,7 @@ function ProjectsPage({ accessToken, onOpenProject, onCreateProject }) {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    if (!accessToken) return
     let isMounted = true
     const load = async () => {
       setLoading(true)
@@ -1027,7 +1028,14 @@ function ProjectsPage({ accessToken, onOpenProject, onCreateProject }) {
   }, [accessToken])
 
   if (loading) return <main className="content">Laster prosjekter…</main>
-  if (error) return <main className="content"><p className="error">{error}</p></main>
+  if (error) {
+    return (
+      <main className="content">
+        <p className="error">{error}</p>
+        <p className="meta">Token tilgjengelig: {accessToken ? 'ja' : 'nei'}</p>
+      </main>
+    )
+  }
 
   return (
     <main className="content">
@@ -1276,6 +1284,8 @@ function AppShell({ session, onLogout }) {
   const documentMatch = path.match(/^\/document\/([^/]+)$/)
   const projectMatch = path.match(/^\/projects\/([^/]+)$/)
   const projectUploadMatch = path.match(/^\/projects\/([^/]+)\/upload$/)
+
+  if (!session?.access_token || !session?.user) return <main className="page center">Laster…</main>
 
   return (
     <div className="page">
