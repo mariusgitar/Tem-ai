@@ -4,7 +4,7 @@ Minimal React + Vite shell for TemAI Lite with Supabase Auth and document upload
 
 ## Setup
 
-1. Install dependencies:
+1. Install the dependencies:
    ```bash
    npm install
    ```
