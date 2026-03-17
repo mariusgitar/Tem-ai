@@ -21,6 +21,8 @@ DOCUMENT_TYPES = [
 def send_json(handler, status_code, payload):
     handler.send_response(status_code)
     handler.send_header('Content-Type', 'application/json')
+    handler.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+    handler.send_header('Pragma', 'no-cache')
     handler.end_headers()
     handler.wfile.write(json.dumps(payload).encode('utf-8'))
 

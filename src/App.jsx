@@ -1014,8 +1014,11 @@ function ProjectsPage({ accessToken, onOpenProject, onCreateProject }) {
     let isMounted = true
     const load = async () => {
       setLoading(true)
-      const response = await fetch('/api/projects', {
-        headers: { Authorization: `Bearer ${accessToken}` },
+      const response = await fetch(`/api/projects?t=${Date.now()}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Cache-Control': 'no-cache',
+        },
       })
       const data = await response.json().catch(() => ({}))
       if (!isMounted) return
@@ -1032,7 +1035,6 @@ function ProjectsPage({ accessToken, onOpenProject, onCreateProject }) {
     return (
       <main className="content">
         <p className="error">{error}</p>
-        <p className="meta">Token tilgjengelig: {accessToken ? 'ja' : 'nei'}</p>
       </main>
     )
   }
