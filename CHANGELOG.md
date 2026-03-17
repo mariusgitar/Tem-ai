@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added ProjectsPage with list of projects
+- Added CreateProjectPage with name, description, document type
+- Added ProjectPage with document list and codebook summary
+- Updated UploadPage to work within project context
+- DocumentPage now passes project_id to analyze for codebook-aware coding
+- Added overlap feedback in open coding step
 - Added projects table with RLS as core organizational unit
 - Added GET and POST /api/projects endpoint
 - Codebook now lives at project level and is shared across documents
